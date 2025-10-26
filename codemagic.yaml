@@ -86,7 +86,7 @@ workflows:
             echo "Modified xcconfig files to remove framework module warnings"
           fi
       
-      - name: Update Xcode project with signing and header fix
+      - name: Update Xcode project settings
         script: |
           set -e
           gem install xcodeproj || true
@@ -94,48 +94,30 @@ workflows:
           ruby <<'RUBY'
           require 'xcodeproj'
           project = Xcodeproj::Project.open('Unity-iPhone.xcodeproj')
-          target = project.targets.find { |t| t.name == 'Unity-iPhone' }
-          target.build_configurations.each do |config|
+          
+          # Update signing for main target
+          main_target = project.targets.find { |t| t.name == 'Unity-iPhone' }
+          main_target.build_configurations.each do |config|
             config.build_settings['CODE_SIGN_STYLE'] = 'Manual'
             config.build_settings['CODE_SIGN_IDENTITY'] = ENV['CERTIFICATE_NAME']
             config.build_settings['DEVELOPMENT_TEAM'] = 'JQ8ZF3V63Z'
             config.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = ENV['PROFILE_NAME']
           end
-          unity_framework = project.targets.find { |t| t.name == 'UnityFramework' }
-          unity_framework.build_configurations.each do |config|
+          
+          # Clean warnings for UnityFramework
+          framework_target = project.targets.find { |t| t.name == 'UnityFramework' }
+          framework_target.build_configurations.each do |config|
             config.build_settings['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
             config.build_settings['CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER'] = 'NO'
             config.build_settings['CLANG_WARN_NON_MODULAR_INCLUDE_IN_FRAMEWORK_MODULE'] = 'NO'
-            other_cflags = config.build_settings['OTHER_CFLAGS'] || []
-            other_cflags = [other_cflags] if other_cflags.is_a?(String)
-            other_cflags.delete_if { |flag| flag.include?('non-modular-include-in-framework-module') }
-            other_cflags << '-Wno-error=non-modular-include-in-framework-module'
-            other_cflags << '-Wno-non-modular-include-in-framework-module'
-            config.build_settings['OTHER_CFLAGS'] = other_cflags
-
-            # <-- FINAL HEADER FIX
-            header_search = config.build_settings['HEADER_SEARCH_PATHS'] || []
-            header_search = [header_search] if header_search.is_a?(String)
-            header_search << '$(PROJECT_DIR)/Libraries/com.unity.ads/Plugins/iOS'
-            header_search << '$(PROJECT_DIR)/Libraries/com.unity.ads/Plugins/iOS/UnityAds.framework/Headers'
-            header_search << '$(PROJECT_DIR)/Libraries/UnityAds/Plugins/iOS/UnityAds.framework/Headers'
-            header_search.uniq!
-            config.build_settings['HEADER_SEARCH_PATHS'] = header_search
+            config.build_settings['OTHER_CFLAGS'] = [
+              '-Wno-error=non-modular-include-in-framework-module',
+              '-Wno-non-modular-include-in-framework-module'
+            ]
           end
+          
           project.save
           RUBY
-      
-      - name: Patch UnityAds missing header structure
-        script: |
-          set -e
-          echo "Patching UnityAds missing folder..."
-          mkdir -p Libraries/com.unity.ads/Plugins/iOS/UnityAds
-          if [ -f "Libraries/com.unity.ads/Plugins/iOS/UnityAdsLoadListener.h" ]; then
-            cp Libraries/com.unity.ads/Plugins/iOS/UnityAdsLoadListener.h Libraries/com.unity.ads/Plugins/iOS/UnityAds/UnityAds.h
-          else
-            echo "// Dummy header to satisfy import" > Libraries/com.unity.ads/Plugins/iOS/UnityAds/UnityAds.h
-          fi
-          echo "✅ UnityAds folder patched successfully."
       
       - name: Build IPA
         script: |
