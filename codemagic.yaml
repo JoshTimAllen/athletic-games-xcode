@@ -118,7 +118,38 @@ workflows:
           
           project.save
           RUBY
-      
+
+      - name: Fix missing Unity version defines
+        script: |
+          set -e
+          echo "Adding UNITY_VERSION_* macros to Xcode project..."
+          gem install xcodeproj || true
+          
+          ruby <<'RUBY'
+          require 'xcodeproj'
+          project = Xcodeproj::Project.open('Unity-iPhone.xcodeproj')
+
+          # Adjust these to match your Unity version
+          version_macros = [
+            'UNITY_VERSION_VER=2022',
+            'UNITY_VERSION_MAJ=3',
+            'UNITY_VERSION_MIN=12'
+          ]
+
+          project.targets.each do |target|
+            next unless ['Unity-iPhone', 'UnityFramework'].include?(target.name)
+            target.build_configurations.each do |config|
+              defines = config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || []
+              defines = [defines] if defines.is_a?(String)
+              defines.concat(version_macros)
+              defines.uniq!
+              config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = defines
+            end
+          end
+
+          project.save
+          RUBY
+
       - name: Build IPA
         script: |
           xcode-project build-ipa \
