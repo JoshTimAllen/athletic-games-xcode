@@ -75,7 +75,7 @@ workflows:
           </plist>
           EOF
 
-      - name: Update Xcode project with signing
+      - name: Update Xcode project with signing info
         script: |
           gem install xcodeproj || true
           ruby - <<'RUBY'
@@ -113,7 +113,7 @@ workflows:
             attrs['EnableUserScriptSandboxing'] = 'YES'
           end
           project.save
-          puts "✅ UnityFramework target patched for Xcode 16.4"
+          puts "✅ Patched UnityFramework target for Xcode 16.4"
           RUBY
 
       - name: Inject Unity version macros
@@ -136,7 +136,7 @@ workflows:
           puts "✅ Injected Unity 2022.3.62f2 macros"
           RUBY
 
-      - name: Fix UnityAds + UnityAnalytics includes (final)
+      - name: Fix UnityAds, Analytics, and non-modular includes
         script: |
           gem install xcodeproj || true
           ruby - <<'RUBY'
@@ -147,7 +147,6 @@ workflows:
             target.build_configurations.each do |cfg|
               hdr = Array(cfg.build_settings['HEADER_SEARCH_PATHS'])
               frm = Array(cfg.build_settings['FRAMEWORK_SEARCH_PATHS'])
-
               [
                 '$(PROJECT_DIR)/Libraries/com.unity.ads/Plugins/iOS',
                 '$(PROJECT_DIR)/Libraries/com.unity.analytics/Plugins/iOS',
@@ -157,7 +156,6 @@ workflows:
                 hdr << p unless hdr.include?(p)
                 frm << p unless frm.include?(p)
               end
-
               cfg.build_settings['HEADER_SEARCH_PATHS'] = hdr + ['$(inherited)']
               cfg.build_settings['FRAMEWORK_SEARCH_PATHS'] = frm + ['$(inherited)']
               cfg.build_settings['CLANG_ENABLE_MODULES'] = 'NO'
@@ -165,24 +163,35 @@ workflows:
               cfg.build_settings['ENABLE_MODULE_VERIFIER'] = 'NO'
               cfg.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
             end
-            puts "✅ Fixed UnityAdsUnityWrapper imports and Analytics includes"
+            puts "✅ Fixed UnityAds + Analytics includes"
           end
           project.save
           RUBY
 
-      - name: Ensure keychain unlocked
-        script: security unlock-keychain -p "" build.keychain
+      - name: Validate signing configuration
+        script: |
+          echo "🔐 Using signing identity: $CERTIFICATE_NAME"
+          echo "📄 Using provisioning profile: $PROFILE_NAME"
+          echo "👥 Using team ID: JQ8ZF3V63Z"
+          security unlock-keychain -p "" build.keychain
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+
+      - name: Dump Xcode Build Settings
+        script: |
+          xcodebuild -project "$XCODE_PROJECT" -scheme "$XCODE_SCHEME" -showBuildSettings | tee /tmp/build_settings.txt
 
       - name: Build IPA
         script: |
           xcode-project build-ipa \
             --project "$XCODE_PROJECT" \
             --scheme "$XCODE_SCHEME" \
+            --archive-flags "CODE_SIGN_IDENTITY='$CERTIFICATE_NAME' DEVELOPMENT_TEAM=JQ8ZF3V63Z PROVISIONING_PROFILE_SPECIFIER='$PROFILE_NAME'" \
             --export-options-plist $HOME/export_options.plist
 
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
+      - /tmp/build_settings.txt
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
 
