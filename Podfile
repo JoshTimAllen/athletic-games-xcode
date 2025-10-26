@@ -6,7 +6,6 @@ platform :ios, '13.0'
 target 'UnityFramework' do
   pod 'Google-Mobile-Ads-SDK', '~> 12.2.0'
   pod 'GoogleUserMessagingPlatform', '2.7.0'
-  pod 'UnityAds', '~> 4.12.0'
 end
 target 'Unity-iPhone' do
 end
