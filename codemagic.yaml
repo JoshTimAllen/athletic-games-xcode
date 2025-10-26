@@ -82,7 +82,7 @@ workflows:
             --project "$XCODE_PROJECT" \
             --scheme "$XCODE_SCHEME" \
             --export-options-plist $HOME/export_options.plist \
-            --archive-flags="PROVISIONING_PROFILE_SPECIFIER=$PROFILE_NAME CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=JQ8ZF3V63Z"
+            --archive-flags="PROVISIONING_PROFILE_SPECIFIER='$PROFILE_NAME' CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=JQ8ZF3V63Z"
     
     artifacts:
       - build/ios/ipa/*.ipa
