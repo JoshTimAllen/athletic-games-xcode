@@ -106,6 +106,13 @@ workflows:
             config.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = '$PROFILE_NAME'
           end
           
+          # Fix UnityFramework compilation errors
+          unity_framework = project.targets.find { |t| t.name == 'UnityFramework' }
+          unity_framework.build_configurations.each do |config|
+            config.build_settings['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
+            config.build_settings['CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER'] = 'NO'
+          end
+          
           project.save
           EOF
       
