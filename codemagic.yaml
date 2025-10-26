@@ -111,6 +111,7 @@ workflows:
           unity_framework.build_configurations.each do |config|
             config.build_settings['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
             config.build_settings['CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER'] = 'NO'
+            config.build_settings['WARNING_CFLAGS'] = '-Wno-error=non-modular-include-in-framework-module'
           end
           
           project.save
