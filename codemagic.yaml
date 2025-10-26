@@ -99,33 +99,23 @@ workflows:
       - name: Update Xcode project with signing
         script: |
           set -e
-          
-          # Install xcodeproj gem if not available
           gem install xcodeproj || true
           
-          # Update project file with correct signing settings
-          ruby - <<'RUBY_SCRIPT'
+          ruby <<'RUBY'
           require 'xcodeproj'
           project = Xcodeproj::Project.open('Unity-iPhone.xcodeproj')
-          
-          # Only update Unity-iPhone target (not UnityFramework)
           target = project.targets.find { |t| t.name == 'Unity-iPhone' }
-          
           target.build_configurations.each do |config|
             config.build_settings['CODE_SIGN_STYLE'] = 'Manual'
             config.build_settings['CODE_SIGN_IDENTITY'] = ENV['CERTIFICATE_NAME']
             config.build_settings['DEVELOPMENT_TEAM'] = 'JQ8ZF3V63Z'
             config.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = ENV['PROFILE_NAME']
           end
-          
-          # Fix UnityFramework compilation errors - be more aggressive
           unity_framework = project.targets.find { |t| t.name == 'UnityFramework' }
           unity_framework.build_configurations.each do |config|
             config.build_settings['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
             config.build_settings['CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER'] = 'NO'
             config.build_settings['CLANG_WARN_NON_MODULAR_INCLUDE_IN_FRAMEWORK_MODULE'] = 'NO'
-            
-            # Remove the flag from OTHER_CFLAGS if it exists
             other_cflags = config.build_settings['OTHER_CFLAGS'] || []
             other_cflags = [other_cflags] if other_cflags.is_a?(String)
             other_cflags.delete_if { |flag| flag.include?('non-modular-include-in-framework-module') }
@@ -133,9 +123,8 @@ workflows:
             other_cflags << '-Wno-non-modular-include-in-framework-module'
             config.build_settings['OTHER_CFLAGS'] = other_cflags
           end
-          
           project.save
-RUBY_SCRIPT
+          RUBY
       
       - name: Build IPA
         script: |
