@@ -42,7 +42,6 @@ workflows:
           security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
           CERTIFICATE_NAME=$(security find-identity -v -p codesigning build.keychain | grep "Distribution" | head -1 | sed -n 's/.*"\(.*\)".*/\1/p')
           echo "CERTIFICATE_NAME=$CERTIFICATE_NAME" >> $CM_ENV
-          echo "Found certificate: $CERTIFICATE_NAME"
 
       - name: Install CocoaPods dependencies
         script: |
@@ -137,33 +136,7 @@ workflows:
           puts "✅ Injected Unity 2022.3.62f2 macros"
           RUBY
 
-      - name: Force disable UnityAds non-modular include errors
-        script: |
-          gem install xcodeproj || true
-          ruby - <<'RUBY'
-          require 'xcodeproj'
-          project = Xcodeproj::Project.open('Unity-iPhone.xcodeproj')
-          target = project.targets.find { |t| t.name == 'UnityFramework' }
-          if target
-            target.build_configurations.each do |cfg|
-              cflags = Array(cfg.build_settings['OTHER_CFLAGS'])
-              cflags.reject! { |f| f.include?('Werror=non-modular') }
-              cflags += ['-Wno-non-modular-include-in-framework-module', '-Wno-error=non-modular-include-in-framework-module']
-              hdrs = Array(cfg.build_settings['HEADER_SEARCH_PATHS'])
-              ads = '$(PROJECT_DIR)/Libraries/com.unity.ads/Plugins/iOS'
-              hdrs << ads unless hdrs.include?(ads)
-              cfg.build_settings['HEADER_SEARCH_PATHS'] = hdrs + ['$(inherited)']
-              cfg.build_settings['OTHER_CFLAGS'] = cflags
-              cfg.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
-              cfg.build_settings['CLANG_ENABLE_MODULES'] = 'NO'
-              cfg.build_settings['ENABLE_MODULE_VERIFIER'] = 'NO'
-            end
-            puts "✅ Patched UnityFramework non-modular includes"
-          end
-          project.save
-          RUBY
-
-      - name: Fix UnityAds include paths for Xcode 16.4
+      - name: Fix UnityAds + UnityAnalytics includes (final)
         script: |
           gem install xcodeproj || true
           ruby - <<'RUBY'
@@ -174,55 +147,26 @@ workflows:
             target.build_configurations.each do |cfg|
               hdr = Array(cfg.build_settings['HEADER_SEARCH_PATHS'])
               frm = Array(cfg.build_settings['FRAMEWORK_SEARCH_PATHS'])
+
               [
                 '$(PROJECT_DIR)/Libraries/com.unity.ads/Plugins/iOS',
+                '$(PROJECT_DIR)/Libraries/com.unity.analytics/Plugins/iOS',
                 '$(PROJECT_DIR)/Libraries/com.unity.ads.ios-support/Runtime/Plugins/iOS',
                 '$(PROJECT_DIR)/Libraries/UnityAds.framework'
               ].each do |p|
                 hdr << p unless hdr.include?(p)
                 frm << p unless frm.include?(p)
               end
+
               cfg.build_settings['HEADER_SEARCH_PATHS'] = hdr + ['$(inherited)']
               cfg.build_settings['FRAMEWORK_SEARCH_PATHS'] = frm + ['$(inherited)']
               cfg.build_settings['CLANG_ENABLE_MODULES'] = 'NO'
+              cfg.build_settings['DEFINES_MODULE'] = 'NO'
               cfg.build_settings['ENABLE_MODULE_VERIFIER'] = 'NO'
               cfg.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
             end
-            puts "✅ Fixed UnityAds include paths and disabled module enforcement"
+            puts "✅ Fixed UnityAdsUnityWrapper imports and Analytics includes"
           end
-          project.save
-          RUBY
-
-      - name: Fix UnityAnalytics include paths for Xcode 16.4
-        script: |
-          gem install xcodeproj || true
-          ruby - <<'RUBY'
-          require 'xcodeproj'
-          project = Xcodeproj::Project.open('Unity-iPhone.xcodeproj')
-          target = project.targets.find { |t| t.name == 'UnityFramework' }
-
-          if target
-            target.build_configurations.each do |cfg|
-              hdr = Array(cfg.build_settings['HEADER_SEARCH_PATHS'])
-              frm = Array(cfg.build_settings['FRAMEWORK_SEARCH_PATHS'])
-
-              analytics_ios = '$(PROJECT_DIR)/Libraries/com.unity.analytics/Plugins/iOS'
-              unity_ads_ios  = '$(PROJECT_DIR)/Libraries/com.unity.ads/Plugins/iOS'
-              ios_support    = '$(PROJECT_DIR)/Libraries/com.unity.ads.ios-support/Runtime/Plugins/iOS'
-
-              [analytics_ios, unity_ads_ios, ios_support].each do |p|
-                hdr << p unless hdr.include?(p)
-                frm << p unless frm.include?(p)
-              end
-
-              cfg.build_settings['HEADER_SEARCH_PATHS'] = hdr + ['$(inherited)']
-              cfg.build_settings['FRAMEWORK_SEARCH_PATHS'] = frm + ['$(inherited)']
-            end
-            puts "✅ Added UnityAnalytics + Ads include paths"
-          else
-            puts "⚠️ UnityFramework target not found"
-          end
-
           project.save
           RUBY
 
