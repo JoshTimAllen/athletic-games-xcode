@@ -6,7 +6,7 @@ workflows:
 
     environment:
       groups:
-        - ios  # your environment variable group in Codemagic
+        - ios  # Codemagic group containing signing credentials and App Store keys
       vars:
         XCODE_PROJECT: "Unity-iPhone.xcodeproj"
         XCODE_SCHEME: "Unity-iPhone"
@@ -106,12 +106,10 @@ workflows:
 
           project_path = 'Unity-iPhone.xcodeproj'
           project = Xcodeproj::Project.open(project_path)
-
           unity_framework = project.targets.find { |t| t.name == 'UnityFramework' }
 
           if unity_framework
             unity_framework.build_configurations.each do |config|
-              # Prevent "non-modular include" build failures
               config.build_settings['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
               config.build_settings['CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER'] = 'NO'
               config.build_settings['CLANG_WARN_NON_MODULAR_INCLUDE_IN_FRAMEWORK_MODULE'] = 'NO'
@@ -119,7 +117,6 @@ workflows:
                 '-Wno-non-modular-include-in-framework-module',
                 '-Wno-error=non-modular-include-in-framework-module'
               ]
-              # Add Unity Ads framework search path
               framework_path = '$(PROJECT_DIR)/Libraries/com.unity.ads/Plugins/iOS'
               existing = Array(config.build_settings['FRAMEWORK_SEARCH_PATHS'])
               unless existing.include?(framework_path)
@@ -128,13 +125,53 @@ workflows:
             end
           end
 
-          # Optional: quiet the ENABLE_USER_SCRIPT_SANDBOXING warning
           project.root_object.attributes['TargetAttributes']&.each_value do |attrs|
             attrs['EnableUserScriptSandboxing'] = 'YES'
           end
 
           project.save
           puts "✅ UnityFramework target patched for Xcode 16.4"
+          RUBY
+
+      - name: Inject Unity version macros
+        script: |
+          gem install xcodeproj || true
+          ruby - <<'RUBY'
+          require 'xcodeproj'
+          project = Xcodeproj::Project.open('Unity-iPhone.xcodeproj')
+
+          unity_framework = project.targets.find { |t| t.name == 'UnityFramework' }
+          if unity_framework
+            unity_framework.build_configurations.each do |config|
+              defs = config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || ['$(inherited)']
+              unless defs.any? { |d| d.include?('UNITY_VERSION_VER') }
+                defs += [
+                  'UNITY_VERSION_VER=2022',
+                  'UNITY_VERSION_MAJ=3',
+                  'UNITY_VERSION_MIN=62'
+                ]
+              end
+              config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = defs
+            end
+          end
+
+          unity_iphone = project.targets.find { |t| t.name == 'Unity-iPhone' }
+          if unity_iphone
+            unity_iphone.build_configurations.each do |config|
+              defs = config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || ['$(inherited)']
+              unless defs.any? { |d| d.include?('UNITY_VERSION_VER') }
+                defs += [
+                  'UNITY_VERSION_VER=2022',
+                  'UNITY_VERSION_MAJ=3',
+                  'UNITY_VERSION_MIN=62'
+                ]
+              end
+              config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = defs
+            end
+          end
+
+          project.save
+          puts "✅ Injected Unity 2022.3.62f2 macros into Xcode project"
           RUBY
 
       - name: Ensure keychain unlocked
