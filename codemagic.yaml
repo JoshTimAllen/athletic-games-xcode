@@ -125,6 +125,18 @@ workflows:
           project.save
           RUBY
       
+      - name: Patch UnityAds missing header structure
+        script: |
+          set -e
+          echo "Patching UnityAds missing folder..."
+          mkdir -p Libraries/com.unity.ads/Plugins/iOS/UnityAds
+          if [ -f "Libraries/com.unity.ads/Plugins/iOS/UnityAdsLoadListener.h" ]; then
+            cp Libraries/com.unity.ads/Plugins/iOS/UnityAdsLoadListener.h Libraries/com.unity.ads/Plugins/iOS/UnityAds/UnityAds.h
+          else
+            echo "// Dummy header to satisfy import" > Libraries/com.unity.ads/Plugins/iOS/UnityAds/UnityAds.h
+          fi
+          echo "✅ UnityAds folder patched successfully."
+      
       - name: Build IPA
         script: |
           xcode-project build-ipa \
