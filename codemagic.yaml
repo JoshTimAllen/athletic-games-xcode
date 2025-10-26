@@ -113,9 +113,10 @@ workflows:
             other_cflags << '-Wno-non-modular-include-in-framework-module'
             config.build_settings['OTHER_CFLAGS'] = other_cflags
 
-            # <-- UPDATED HEADER FIX
+            # <-- FINAL HEADER FIX
             header_search = config.build_settings['HEADER_SEARCH_PATHS'] || []
             header_search = [header_search] if header_search.is_a?(String)
+            header_search << '$(PROJECT_DIR)/Libraries/com.unity.ads/Plugins/iOS'
             header_search << '$(PROJECT_DIR)/Libraries/com.unity.ads/Plugins/iOS/UnityAds.framework/Headers'
             header_search << '$(PROJECT_DIR)/Libraries/UnityAds/Plugins/iOS/UnityAds.framework/Headers'
             header_search.uniq!
