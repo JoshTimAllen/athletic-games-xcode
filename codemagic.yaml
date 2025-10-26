@@ -1,106 +1,176 @@
 workflows:
-  ios-build:
-    name: iOS Build
-    max_build_duration: 120
+  ios-app-store:
+    name: iOS App Store Build
+    max_build_duration: 60
+    instance_type: mac_mini_m1
+
     environment:
+      groups:
+        - ios                        # keep if you store secrets there
       vars:
-        XCODE_VERSION: "16.4"
-        UNITY_VERSION: "2022.3.60f1"
-        PROJECT_NAME: "Unity-iPhone"
-        SCHEME: "Unity-iPhone"
-        APP_BUNDLE_ID: "com.Josh-TimAllen.AthleticGames"
-        APP_NAME: "AthleticGames"
-        DEVELOPMENT_TEAM: "JQ8ZF3V63Z"
-        PROVISIONING_PROFILE_SPECIFIER: "Athletic Games Profile"
-        CODE_SIGN_IDENTITY: "Apple Distribution: Josh-Tim Allen (JQ8ZF3V63Z)"
-        BUILD_DIR: "$CM_BUILD_DIR/ios"
+        XCODE_PROJECT: "Unity-iPhone.xcodeproj"
+        XCODE_SCHEME: "Unity-iPhone"
+        TEAM_ID: "JQ8ZF3V63Z"
+        BUNDLE_ID: "com.Josh-TimAllen.AthleticGames"
+        PROFILE_NAME: "Athletic Games Profile"     # human-readable profile name
       xcode: 16.4
       cocoapods: default
-      node: 20
+
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: "main"
+          include: true
+          source: true
+
     scripts:
-      - name: 🧹 Clean previous builds
+      # 1) Install provisioning profile + import signing cert to keychain
+      - name: Set up code signing
         script: |
-          rm -rf "$BUILD_DIR" || true
-          mkdir -p "$BUILD_DIR"
-          echo "Cleaned build directory at $BUILD_DIR"
+          set -e
 
-      - name: ⚙️ Check build settings
-        script: |
-          echo "Checking build settings for $PROJECT_NAME..."
-          xcodebuild -project "$PROJECT_NAME.xcodeproj" -scheme "$SCHEME" -showBuildSettings | tee build_settings.txt
+          # --- Provisioning profile (.mobileprovision) ---
+          # Expect env var PROVISION_PROFILE_BASE64 to contain base64 of the profile
+          echo "$PROVISION_PROFILE_BASE64" | base64 --decode > /tmp/profile.mobileprovision
+          PROFILE_UUID=$(grep UUID -A1 -a /tmp/profile.mobileprovision | grep -io "[-A-F0-9]\{36\}")
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp /tmp/profile.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
 
-      - name: 🏗️ Build IPA
-        script: |
-          echo "Starting Xcode archive for $APP_NAME..."
-          xcodebuild \
-            -project "$PROJECT_NAME.xcodeproj" \
-            -scheme "$SCHEME" \
-            -archivePath "$BUILD_DIR/xcarchive/$PROJECT_NAME.xcarchive" \
-            -destination 'generic/platform=iOS' \
-            CODE_SIGN_IDENTITY="$CODE_SIGN_IDENTITY" \
-            DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
-            PROVISIONING_PROFILE_SPECIFIER="$PROVISIONING_PROFILE_SPECIFIER" \
-            CODE_SIGN_STYLE=Manual \
-            COMPILER_INDEX_STORE_ENABLE=NO \
-            archive
+          # Extract readable profile name (used later)
+          PROFILE_NAME_EXTRACTED=$(security cms -D -i /tmp/profile.mobileprovision | plutil -extract Name raw -)
+          echo "PROFILE_NAME=${PROFILE_NAME_EXTRACTED:-$PROFILE_NAME}" >> $CM_ENV
 
-      - name: 📦 Export IPA
+          # --- Signing certificate (.p12) ---
+          # Expect env var P12_BASE64 and P12_PASSWORD
+          echo "$P12_BASE64" | base64 --decode > /tmp/cert.p12
+          security create-keychain -p "" build.keychain
+          security list-keychains -s build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+          security import /tmp/cert.p12 -k build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+
+          # Detect identity (prefer Apple Distribution)
+          CERT=$(security find-identity -v -p codesigning build.keychain | grep "Apple Distribution" | sed -n 's/.*"\(.*\)".*/\1/p' | head -1)
+          if [ -z "$CERT" ]; then
+            CERT=$(security find-identity -v -p codesigning build.keychain | grep "iPhone Distribution" | sed -n 's/.*"\(.*\)".*/\1/p' | head -1)
+          fi
+          echo "CERTIFICATE_NAME=$CERT" >> $CM_ENV
+          echo "Using certificate: $CERT"
+
+      # 2) Ensure Pods are installed if Podfile exists
+      - name: Install CocoaPods (if present)
         script: |
-          echo "Creating export options plist..."
-          cat <<EOF > exportOptions.plist
+          if [ -f "Podfile" ]; then
+            pod install --repo-update
+          fi
+
+      # 3) Set per-target signing in the Xcode project:
+      #    - App target (Unity-iPhone): Manual + your profile
+      #    - UnityFramework: Automatic, no provisioning profile
+      - name: Fix per-target signing (project edit)
+        script: |
+          set -e
+          gem install xcodeproj -N || true
+          ruby - <<'RUBY'
+          require 'xcodeproj'
+          project_path = 'Unity-iPhone.xcodeproj'
+          proj = Xcodeproj::Project.open(project_path)
+
+          team_id   = ENV['TEAM_ID']
+          cert_name = ENV['CERTIFICATE_NAME']
+          prof_spec = ENV['PROFILE_NAME']
+
+          app_t  = proj.targets.find { |t| t.name == 'Unity-iPhone' }
+          ufw_t  = proj.targets.find { |t| t.name == 'UnityFramework' }
+
+          # App target -> Manual signing with explicit profile
+          app_t.build_configurations.each do |c|
+            c.build_settings['CODE_SIGN_STYLE'] = 'Manual'
+            c.build_settings['DEVELOPMENT_TEAM'] = team_id
+            c.build_settings['CODE_SIGN_IDENTITY'] = cert_name if cert_name && !cert_name.empty?
+            c.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = prof_spec
+            c.build_settings['ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES'] ||= 'YES'
+          end
+
+          # UnityFramework -> Automatic signing, NO provisioning profile
+          if ufw_t
+            ufw_t.build_configurations.each do |c|
+              c.build_settings['CODE_SIGN_STYLE'] = 'Automatic'
+              c.build_settings['DEVELOPMENT_TEAM'] = team_id
+              c.build_settings.delete('PROVISIONING_PROFILE_SPECIFIER')
+              c.build_settings.delete('PROVISIONING_PROFILE')
+              c.build_settings['CODE_SIGNING_ALLOWED'] = 'YES'
+            end
+          end
+
+          proj.save
+          RUBY
+
+      # 4) Create export options (ties your bundle id to the profile name)
+      - name: Create export options
+        script: |
+          set -e
+          : "${BUNDLE_ID:?Missing BUNDLE_ID}"
+          : "${TEAM_ID:?Missing TEAM_ID}"
+          : "${PROFILE_NAME:?Missing PROFILE_NAME}"
+          cat > $HOME/export_options.plist <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
-            <key>method</key>
-            <string>app-store</string>
-            <key>signingStyle</key>
-            <string>manual</string>
+            <key>method</key><string>app-store</string>
+            <key>teamID</key><string>${TEAM_ID}</string>
+            <key>signingStyle</key><string>manual</string>
             <key>provisioningProfiles</key>
             <dict>
-              <key>${APP_BUNDLE_ID}</key>
-              <string>${PROVISIONING_PROFILE_SPECIFIER}</string>
+              <key>${BUNDLE_ID}</key><string>${PROFILE_NAME}</string>
             </dict>
-            <key>teamID</key>
-            <string>${DEVELOPMENT_TEAM}</string>
-            <key>uploadBitcode</key>
-            <false/>
-            <key>compileBitcode</key>
-            <false/>
+            <key>uploadSymbols</key><true/>
+            <key>uploadBitcode</key><false/>
           </dict>
           </plist>
           EOF
 
-          echo "Exporting IPA..."
+      # 5) Archive WITHOUT passing any signing overrides that affect all targets
+      - name: Archive
+        script: |
+          set -e
+          xcodebuild \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$CM_BUILD_DIR/ios/xcarchive/Unity-iPhone.xcarchive" \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            archive
+
+      # 6) Export IPA
+      - name: Export IPA
+        script: |
+          set -e
           xcodebuild -exportArchive \
-            -archivePath "$BUILD_DIR/xcarchive/$PROJECT_NAME.xcarchive" \
-            -exportOptionsPlist exportOptions.plist \
-            -exportPath "$BUILD_DIR/ipa"
-
-      - name: 🧾 Verify IPA
-        script: |
-          echo "Contents of exported IPA directory:"
-          ls -lah "$BUILD_DIR/ipa"
-
-      - name: 🧠 Print summary
-        script: |
-          echo "✅ Build complete!"
-          echo "Xcode Version: $XCODE_VERSION"
-          echo "Unity Version: $UNITY_VERSION"
-          echo "Team: $DEVELOPMENT_TEAM"
-          echo "Provisioning Profile: $PROVISIONING_PROFILE_SPECIFIER"
-          echo "Code Sign Identity: $CODE_SIGN_IDENTITY"
-          echo "Output IPA location: $BUILD_DIR/ipa"
+            -archivePath "$CM_BUILD_DIR/ios/xcarchive/Unity-iPhone.xcarchive" \
+            -exportOptionsPlist "$HOME/export_options.plist" \
+            -exportPath "$CM_BUILD_DIR/ios/ipa"
 
     artifacts:
-      - "$BUILD_DIR/ipa/*.ipa"
-      - "$BUILD_DIR/xcarchive/*.xcarchive"
-      - "build_settings.txt"
+      - ios/ipa/*.ipa
+      - ios/xcarchive/**/*.xcarchive
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
 
     publishing:
       email:
         recipients:
-          - "your@email.com"
+          - joshtimallendev@gmail.com
         notify:
           success: true
           failure: true
+      app_store_connect:
+        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+        submit_to_testflight: true
+        # submit_to_app_store: true
