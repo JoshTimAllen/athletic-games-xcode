@@ -98,7 +98,7 @@ workflows:
             echo "Modified xcconfig files to remove framework module warnings"
           fi
       
-      - name: Update Xcode project with signing
+      - name: Update Xcode project with signing and header fix
         script: |
           set -e
           gem install xcodeproj || true
@@ -124,6 +124,13 @@ workflows:
             other_cflags << '-Wno-error=non-modular-include-in-framework-module'
             other_cflags << '-Wno-non-modular-include-in-framework-module'
             config.build_settings['OTHER_CFLAGS'] = other_cflags
+
+            # <-- ADDED FIX
+            header_search = config.build_settings['HEADER_SEARCH_PATHS'] || []
+            header_search = [header_search] if header_search.is_a?(String)
+            header_search << '$(PROJECT_DIR)/Libraries/com.unity.ads/Plugins/iOS'
+            header_search.uniq!
+            config.build_settings['HEADER_SEARCH_PATHS'] = header_search
           end
           project.save
           RUBY
