@@ -90,7 +90,7 @@ workflows:
           
           # Add post_install hook to Podfile if it exists
           if [ -f "Podfile" ]; then
-            cat >> Podfile << 'PODFILE_END'
+            cat >> Podfile <<'EOF'
 
 post_install do |installer|
   installer.pods_project.targets.each do |target|
@@ -100,7 +100,7 @@ post_install do |installer|
     end
   end
 end
-PODFILE_END
+EOF
             pod install
           fi
       
