@@ -89,11 +89,13 @@ workflows:
           set -e
           
           if [ -f "Podfile" ]; then
-            # Simple approach: just reinstall pods and modify the generated xcconfig
             pod install
             
-            # Modify the generated xcconfig files to remove the problematic flag
-            find Pods/Target\ Support\ Files -name "*.xcconfig" -exec sed -i '' 's/-Werror=non-modular-include-in-framework-module//g' {} \;
+            # Aggressively remove the problematic flag from ALL xcconfig files
+            find Pods -name "*.xcconfig" -type f -exec sed -i '' 's/-Werror=non-modular-include-in-framework-module//g' {} \;
+            find Pods -name "*.xcconfig" -type f -exec sed -i '' 's/-Wnon-modular-include-in-framework-module//g' {} \;
+            
+            echo "Modified xcconfig files to remove framework module warnings"
           fi
       
       - name: Update Xcode project with signing
