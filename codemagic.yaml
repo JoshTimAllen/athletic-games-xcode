@@ -84,24 +84,16 @@ workflows:
           </plist>
           EOF
       
-      - name: Fix Podfile to disable framework module warnings
+      - name: Fix Podfile and reinstall pods
         script: |
           set -e
           
-          # Add post_install hook to Podfile if it exists
           if [ -f "Podfile" ]; then
-            cat >> Podfile <<'EOF'
-
-post_install do |installer|
-  installer.pods_project.targets.each do |target|
-    target.build_configurations.each do |config|
-      config.build_settings['CLANG_WARN_NON_MODULAR_INCLUDE_IN_FRAMEWORK_MODULE'] = 'NO'
-      config.build_settings['WARNING_CFLAGS'] = '$(inherited) -Wno-error=non-modular-include-in-framework-module -Wno-non-modular-include-in-framework-module'
-    end
-  end
-end
-EOF
+            # Simple approach: just reinstall pods and modify the generated xcconfig
             pod install
+            
+            # Modify the generated xcconfig files to remove the problematic flag
+            find Pods/Target\ Support\ Files -name "*.xcconfig" -exec sed -i '' 's/-Werror=non-modular-include-in-framework-module//g' {} \;
           fi
       
       - name: Update Xcode project with signing
