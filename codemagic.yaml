@@ -52,11 +52,31 @@ workflows:
           cd Unity-iPhone.xcodeproj/..
           agvtool new-version -all $(($(app-store-connect get-latest-build-number "$APP_STORE_ID") + 1))
       
+      - name: Create export options
+        script: |
+          cat > $HOME/export_options.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store</string>
+            <key>teamID</key>
+            <string>JQ8ZF3V63Z</string>
+            <key>uploadSymbols</key>
+            <true/>
+            <key>uploadBitcode</key>
+            <false/>
+          </dict>
+          </plist>
+          EOF
+      
       - name: Build IPA
         script: |
           xcode-project build-ipa \
             --project "$XCODE_PROJECT" \
-            --scheme "$XCODE_SCHEME"
+            --scheme "$XCODE_SCHEME" \
+            --export-options-plist $HOME/export_options.plist
     
     artifacts:
       - build/ios/ipa/*.ipa
