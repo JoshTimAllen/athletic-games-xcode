@@ -31,6 +31,11 @@ workflows:
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           cp /tmp/profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/$PROFILE_UUID.mobileprovision
           
+          # Get profile name for later use
+          PROFILE_NAME=$(security cms -D -i /tmp/profile.mobileprovision | plutil -extract Name raw -)
+          echo "PROFILE_NAME=$PROFILE_NAME" >> $CM_ENV
+          echo "PROFILE_UUID=$PROFILE_UUID" >> $CM_ENV
+          
           # Decode and import certificate
           echo $P12_BASE64 | base64 --decode > /tmp/certificate.p12
           security create-keychain -p "" build.keychain
@@ -76,7 +81,8 @@ workflows:
           xcode-project build-ipa \
             --project "$XCODE_PROJECT" \
             --scheme "$XCODE_SCHEME" \
-            --export-options-plist $HOME/export_options.plist
+            --export-options-plist $HOME/export_options.plist \
+            --archive-flags="PROVISIONING_PROFILE_SPECIFIER=$PROFILE_NAME CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=JQ8ZF3V63Z"
     
     artifacts:
       - build/ios/ipa/*.ipa
