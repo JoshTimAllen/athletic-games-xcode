@@ -67,28 +67,41 @@ workflows:
             <string>app-store</string>
             <key>teamID</key>
             <string>JQ8ZF3V63Z</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.yourcompany.yourapp</key>
+              <string>Athletic Games Profile</string>
+            </dict>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>stripSwiftSymbols</key>
+            <true/>
+            <key>compileBitcode</key>
+            <false/>
             <key>uploadSymbols</key>
             <true/>
-            <key>uploadBitcode</key>
-            <false/>
           </dict>
           </plist>
           EOF
 
-      - name: Update Xcode project with signing info
+      - name: Apply signing to all Xcode targets
         script: |
           gem install xcodeproj || true
           ruby - <<'RUBY'
           require 'xcodeproj'
           project = Xcodeproj::Project.open('Unity-iPhone.xcodeproj')
-          target = project.targets.find { |t| t.name == 'Unity-iPhone' }
-          target.build_configurations.each do |config|
-            config.build_settings['CODE_SIGN_STYLE'] = 'Manual'
-            config.build_settings['CODE_SIGN_IDENTITY'] = '$CERTIFICATE_NAME'
-            config.build_settings['DEVELOPMENT_TEAM'] = 'JQ8ZF3V63Z'
-            config.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = '$PROFILE_NAME'
+          ["Unity-iPhone", "UnityFramework"].each do |tname|
+            target = project.targets.find { |t| t.name == tname }
+            next unless target
+            target.build_configurations.each do |cfg|
+              cfg.build_settings['CODE_SIGN_STYLE'] = 'Manual'
+              cfg.build_settings['CODE_SIGN_IDENTITY'] = "Apple Distribution: Josh-Tim Allen (JQ8ZF3V63Z)"
+              cfg.build_settings['DEVELOPMENT_TEAM'] = 'JQ8ZF3V63Z'
+              cfg.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = 'Athletic Games Profile'
+            end
           end
           project.save
+          puts "✅ Applied manual signing for all Unity targets"
           RUBY
 
       - name: Patch Unity Xcode settings for Xcode 16.4
@@ -113,7 +126,7 @@ workflows:
             attrs['EnableUserScriptSandboxing'] = 'YES'
           end
           project.save
-          puts "✅ Patched UnityFramework target for Xcode 16.4"
+          puts "✅ Patched UnityFramework for Xcode 16.4"
           RUBY
 
       - name: Inject Unity version macros
@@ -133,10 +146,10 @@ workflows:
             end
           end
           project.save
-          puts "✅ Injected Unity 2022.3.62f2 macros"
+          puts "✅ Injected Unity version macros"
           RUBY
 
-      - name: Fix UnityAds, Analytics, and non-modular includes
+      - name: Fix UnityAds + Analytics + non-modular includes
         script: |
           gem install xcodeproj || true
           ruby - <<'RUBY'
@@ -163,7 +176,7 @@ workflows:
               cfg.build_settings['ENABLE_MODULE_VERIFIER'] = 'NO'
               cfg.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
             end
-            puts "✅ Fixed UnityAds + Analytics includes"
+            puts "✅ Fixed Ads + Analytics include paths"
           end
           project.save
           RUBY
@@ -172,11 +185,11 @@ workflows:
         script: |
           echo "🔐 Using signing identity: $CERTIFICATE_NAME"
           echo "📄 Using provisioning profile: $PROFILE_NAME"
-          echo "👥 Using team ID: JQ8ZF3V63Z"
+          echo "👥 Team ID: JQ8ZF3V63Z"
           security unlock-keychain -p "" build.keychain
           security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
 
-      - name: Dump Xcode Build Settings
+      - name: Dump Xcode build settings
         script: |
           xcodebuild -project "$XCODE_PROJECT" -scheme "$XCODE_SCHEME" -showBuildSettings | tee /tmp/build_settings.txt
 
@@ -185,7 +198,7 @@ workflows:
           xcode-project build-ipa \
             --project "$XCODE_PROJECT" \
             --scheme "$XCODE_SCHEME" \
-            --archive-flags "CODE_SIGN_IDENTITY='$CERTIFICATE_NAME' DEVELOPMENT_TEAM=JQ8ZF3V63Z PROVISIONING_PROFILE_SPECIFIER='$PROFILE_NAME'" \
+            --archive-flags "CODE_SIGN_IDENTITY='Apple Distribution: Josh-Tim Allen (JQ8ZF3V63Z)' DEVELOPMENT_TEAM=JQ8ZF3V63Z PROVISIONING_PROFILE_SPECIFIER='Athletic Games Profile'" \
             --export-options-plist $HOME/export_options.plist
 
     artifacts:
