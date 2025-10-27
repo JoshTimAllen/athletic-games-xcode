@@ -148,7 +148,7 @@ workflows:
           set -e
           
           # Always use workspace if it exists (CocoaPods creates it)
-          if [ -f "Unity-iPhone.xcworkspace" ]; then
+          if [ -d "Unity-iPhone.xcworkspace" ]; then
             echo "Building with workspace (CocoaPods)"
             xcode-project build-ipa \
               --workspace "Unity-iPhone.xcworkspace" \
