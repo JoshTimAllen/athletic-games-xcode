@@ -11,7 +11,7 @@ workflows:
         XCODE_SCHEME: "Unity-iPhone"
       xcode: 16.1
       cocoapods: default
-    
+
     triggering:
       events:
         - push
@@ -19,7 +19,7 @@ workflows:
         - pattern: 'main'
           include: true
           source: true
-    
+
     scripts:
       - name: Set up code signing
         script: |
@@ -45,18 +45,32 @@ workflows:
           fi
           echo "CERTIFICATE_NAME=$CERTIFICATE_NAME" >> $CM_ENV
           echo "Found certificate: $CERTIFICATE_NAME"
-      
+
       - name: Install CocoaPods dependencies
         script: |
+          set -e
           if [ -f "Podfile" ]; then
+            pod repo update
             pod install
           fi
-      
+
+      - name: Select workspace or project
+        script: |
+          set -e
+          if [ -f "Unity-iPhone.xcworkspace" ]; then
+            echo "Detected workspace. Building with CocoaPods integration."
+            echo "XCODE_WORKSPACE=Unity-iPhone.xcworkspace" >> $CM_ENV
+            echo "BUILD_USES_PODS=true" >> $CM_ENV
+          else
+            echo "No workspace found. Building the Xcode project."
+            echo "BUILD_USES_PODS=false" >> $CM_ENV
+          fi
+
       - name: Increment build number
         script: |
           cd Unity-iPhone.xcodeproj/..
           agvtool new-version -all $(($(app-store-connect get-latest-build-number "$APP_STORE_ID") + 1))
-      
+
       - name: Create export options
         script: |
           cat > $HOME/export_options.plist <<EOF
@@ -75,27 +89,28 @@ workflows:
           </dict>
           </plist>
           EOF
-      
-      - name: Fix Podfile and reinstall pods
+
+      - name: Fix Podfile and reinstall pods (non-modular warnings)
         script: |
           set -e
           if [ -f "Podfile" ]; then
+            # ensure Pods are installed (idempotent)
             pod install
+            # remove strict flags if any pod adds them
             find Pods -name "*.xcconfig" -type f -exec sed -i '' 's/-Werror=non-modular-include-in-framework-module//g' {} \;
             find Pods -name "*.xcconfig" -type f -exec sed -i '' 's/-Wnon-modular-include-in-framework-module//g' {} \;
-            echo "Modified xcconfig files to remove framework module warnings"
+            echo "Modified xcconfig files to relax non-modular include flags"
           fi
-      
+
       - name: Update Xcode project settings
         script: |
           set -e
           gem install xcodeproj || true
-          
           ruby <<'RUBY'
           require 'xcodeproj'
           project = Xcodeproj::Project.open('Unity-iPhone.xcodeproj')
-          
-          # Update signing for main target
+
+          # Main app target signing
           main_target = project.targets.find { |t| t.name == 'Unity-iPhone' }
           main_target.build_configurations.each do |config|
             config.build_settings['CODE_SIGN_STYLE'] = 'Manual'
@@ -103,8 +118,8 @@ workflows:
             config.build_settings['DEVELOPMENT_TEAM'] = 'JQ8ZF3V63Z'
             config.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = ENV['PROFILE_NAME']
           end
-          
-          # Clean warnings for UnityFramework
+
+          # UnityFramework warnings (keep build robust)
           framework_target = project.targets.find { |t| t.name == 'UnityFramework' }
           framework_target.build_configurations.each do |config|
             config.build_settings['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
@@ -115,54 +130,31 @@ workflows:
               '-Wno-non-modular-include-in-framework-module'
             ]
           end
-          
-          project.save
-          RUBY
-
-      - name: Fix missing Unity version defines
-        script: |
-          set -e
-          echo "Adding UNITY_VERSION_* macros to Xcode project..."
-          gem install xcodeproj || true
-          
-          ruby <<'RUBY'
-          require 'xcodeproj'
-          project = Xcodeproj::Project.open('Unity-iPhone.xcodeproj')
-
-          # Adjust these to match your Unity version
-          version_macros = [
-            'UNITY_VERSION_VER=2022',
-            'UNITY_VERSION_MAJ=3',
-            'UNITY_VERSION_MIN=12'
-          ]
-
-          project.targets.each do |target|
-            next unless ['Unity-iPhone', 'UnityFramework'].include?(target.name)
-            target.build_configurations.each do |config|
-              defines = config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || []
-              defines = [defines] if defines.is_a?(String)
-              defines.concat(version_macros)
-              defines.uniq!
-              config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = defines
-            end
-          end
 
           project.save
           RUBY
 
       - name: Build IPA
         script: |
-          xcode-project build-ipa \
-            --project "$XCODE_PROJECT" \
-            --scheme "$XCODE_SCHEME" \
-            --export-options-plist $HOME/export_options.plist
-    
+          set -e
+          if [ "${BUILD_USES_PODS}" = "true" ]; then
+            xcode-project build-ipa \
+              --workspace "$XCODE_WORKSPACE" \
+              --scheme "$XCODE_SCHEME" \
+              --export-options-plist $HOME/export_options.plist
+          else
+            xcode-project build-ipa \
+              --project "$XCODE_PROJECT" \
+              --scheme "$XCODE_SCHEME" \
+              --export-options-plist $HOME/export_options.plist
+          fi
+
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
-    
+
     publishing:
       email:
         recipients:
@@ -170,7 +162,7 @@ workflows:
         notify:
           success: true
           failure: true
-      
+
       app_store_connect:
         api_key: $APP_STORE_CONNECT_PRIVATE_KEY
         key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
