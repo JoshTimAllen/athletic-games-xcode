@@ -51,16 +51,31 @@ workflows:
       
       - name: Install CocoaPods dependencies
         script: |
+          set -e
+          
           if [ -f "Podfile" ]; then
-            # Add Google Mobile Ads if not present
+            echo "Found Podfile, adding Google Mobile Ads..."
+            
             if ! grep -q "Google-Mobile-Ads-SDK" Podfile; then
               echo "pod 'Google-Mobile-Ads-SDK'" >> Podfile
+              echo "Added Google-Mobile-Ads-SDK to Podfile"
+            else
+              echo "Google-Mobile-Ads-SDK already in Podfile"
             fi
             
+            echo "Running pod install..."
             pod install
+            
+            if [ -f "Unity-iPhone.xcworkspace" ]; then
+              echo "✅ Workspace created successfully"
+            else
+              echo "❌ ERROR: Workspace not created!"
+            fi
             
             find Pods -name "*.xcconfig" -type f -exec sed -i '' 's/-Werror=non-modular-include-in-framework-module//g' {} \;
             find Pods -name "*.xcconfig" -type f -exec sed -i '' 's/-Wnon-modular-include-in-framework-module//g' {} \;
+          else
+            echo "❌ ERROR: No Podfile found!"
           fi
       
       - name: Update Xcode project with signing
@@ -120,6 +135,7 @@ workflows:
         script: |
           set -e
           
+          # Always use workspace if it exists (CocoaPods creates it)
           if [ -f "Unity-iPhone.xcworkspace" ]; then
             echo "Building with workspace (CocoaPods)"
             xcode-project build-ipa \
@@ -127,7 +143,8 @@ workflows:
               --scheme "$XCODE_SCHEME" \
               --export-options-plist "$HOME/export_options.plist"
           else
-            echo "Building with project"
+            echo "ERROR: Unity-iPhone.xcworkspace not found. CocoaPods installation may have failed."
+            echo "Building with project as fallback..."
             xcode-project build-ipa \
               --project "$XCODE_PROJECT" \
               --scheme "$XCODE_SCHEME" \
