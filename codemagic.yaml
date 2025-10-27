@@ -174,7 +174,7 @@ workflows:
             config.build_settings['ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES'] = 'NO'
           end
           
-          # GameAssembly - automatic signing
+          # GameAssembly - automatic signing and fix script phase
           game_assembly = project.targets.find { |t| t.name == 'GameAssembly' }
           if game_assembly
             game_assembly.build_configurations.each do |config|
@@ -182,6 +182,14 @@ workflows:
               config.build_settings['DEVELOPMENT_TEAM'] = 'JQ8ZF3V63Z'
               config.build_settings.delete('PROVISIONING_PROFILE_SPECIFIER')
               config.build_settings.delete('PROVISIONING_PROFILE')
+            end
+            
+            # Fix the "Run Script" phase to specify outputs
+            game_assembly.shell_script_build_phases.each do |phase|
+              if phase.name == 'Run Script'
+                # Add output files to prevent "will be run during every build" warning
+                phase.output_paths = ['$(DERIVED_FILE_DIR)/il2cpp_output.txt'] if phase.output_paths.empty?
+              end
             end
           end
           
@@ -309,7 +317,21 @@ workflows:
             archive \
             COMPILER_INDEX_STORE_ENABLE=NO \
             ENABLE_BITCODE=NO \
-            | tee "$HOME/xcodebuild_archive.log"
+            2>&1 | tee "$HOME/xcodebuild_archive.log"
+          
+          # Check if archive was created
+          if [ ! -d "$HOME/build/Unity-iPhone.xcarchive" ]; then
+            echo "❌ Archive failed! Checking logs..."
+            echo ""
+            echo "=== Last 100 lines of build log ==="
+            tail -100 "$HOME/xcodebuild_archive.log"
+            echo ""
+            echo "=== Searching for errors ==="
+            grep -i "error:" "$HOME/xcodebuild_archive.log" | tail -20 || echo "No specific errors found"
+            exit 1
+          fi
+          
+          echo "✅ Archive created successfully"
           
           # Export IPA
           xcodebuild \
@@ -317,7 +339,7 @@ workflows:
             -archivePath "$HOME/build/Unity-iPhone.xcarchive" \
             -exportPath "$HOME/build" \
             -exportOptionsPlist "$HOME/export_options.plist" \
-            | tee "$HOME/xcodebuild_export.log"
+            2>&1 | tee "$HOME/xcodebuild_export.log"
           
           # Copy IPA to expected location
           mkdir -p build/ios/ipa
