@@ -1,18 +1,17 @@
 workflows:
   ios-app-store:
     name: iOS App Store Build
-    max_build_duration: 60
+    max_build_duration: 120
     instance_type: mac_mini_m1
-
     environment:
       groups:
         - ios
       vars:
         XCODE_PROJECT: "Unity-iPhone.xcodeproj"
         XCODE_SCHEME: "Unity-iPhone"
-      xcode: 16.1
+      xcode: latest
       cocoapods: default
-
+    
     triggering:
       events:
         - push
@@ -20,19 +19,20 @@ workflows:
         - pattern: "main"
           include: true
           source: true
-
+    
     scripts:
       - name: Set up code signing
         script: |
           set -e
+          
           echo $PROVISION_PROFILE_BASE64 | base64 --decode > /tmp/profile.mobileprovision
           PROFILE_UUID=$(grep UUID -A1 -a /tmp/profile.mobileprovision | grep -io "[-A-F0-9]\{36\}")
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           cp /tmp/profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/$PROFILE_UUID.mobileprovision
+          
           PROFILE_NAME=$(security cms -D -i /tmp/profile.mobileprovision | plutil -extract Name raw -)
           echo "PROFILE_NAME=$PROFILE_NAME" >> $CM_ENV
-          echo "PROFILE_UUID=$PROFILE_UUID" >> $CM_ENV
-
+          
           echo $P12_BASE64 | base64 --decode > /tmp/certificate.p12
           security create-keychain -p "" build.keychain
           security list-keychains -s build.keychain
@@ -41,38 +41,53 @@ workflows:
           security set-keychain-settings -t 3600 -u build.keychain
           security import /tmp/certificate.p12 -k build.keychain -P $P12_PASSWORD -T /usr/bin/codesign -T /usr/bin/security
           security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+          
           CERTIFICATE_NAME=$(security find-identity -v -p codesigning build.keychain | grep "iPhone Distribution" | head -1 | sed -n 's/.*"\(.*\)".*/\1/p')
           if [ -z "$CERTIFICATE_NAME" ]; then
             CERTIFICATE_NAME=$(security find-identity -v -p codesigning build.keychain | grep "Apple Distribution" | head -1 | sed -n 's/.*"\(.*\)".*/\1/p')
           fi
           echo "CERTIFICATE_NAME=$CERTIFICATE_NAME" >> $CM_ENV
           echo "Found certificate: $CERTIFICATE_NAME"
-
+      
       - name: Install CocoaPods dependencies
         script: |
-          set -e
           if [ -f "Podfile" ]; then
-            pod repo update
             pod install
+            
+            find Pods -name "*.xcconfig" -type f -exec sed -i '' 's/-Werror=non-modular-include-in-framework-module//g' {} \;
+            find Pods -name "*.xcconfig" -type f -exec sed -i '' 's/-Wnon-modular-include-in-framework-module//g' {} \;
           fi
-
-      - name: Select workspace or project
+      
+      - name: Update Xcode project with signing
         script: |
           set -e
-          if [ -f "Unity-iPhone.xcworkspace" ]; then
-            echo "Detected workspace. Building with CocoaPods integration."
-            echo "XCODE_WORKSPACE=Unity-iPhone.xcworkspace" >> $CM_ENV
-            echo "BUILD_USES_PODS=true" >> $CM_ENV
-          else
-            echo "No workspace found. Building the Xcode project."
-            echo "BUILD_USES_PODS=false" >> $CM_ENV
-          fi
-
-      - name: Increment build number
-        script: |
-          cd Unity-iPhone.xcodeproj/..
-          agvtool new-version -all $(($(app-store-connect get-latest-build-number "$APP_STORE_ID") + 1))
-
+          gem install xcodeproj || true
+          
+          ruby <<'RUBY'
+          require 'xcodeproj'
+          project = Xcodeproj::Project.open('Unity-iPhone.xcodeproj')
+          target = project.targets.find { |t| t.name == 'Unity-iPhone' }
+          target.build_configurations.each do |config|
+            config.build_settings['CODE_SIGN_STYLE'] = 'Manual'
+            config.build_settings['CODE_SIGN_IDENTITY'] = ENV['CERTIFICATE_NAME']
+            config.build_settings['DEVELOPMENT_TEAM'] = 'JQ8ZF3V63Z'
+            config.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = ENV['PROFILE_NAME']
+          end
+          unity_framework = project.targets.find { |t| t.name == 'UnityFramework' }
+          unity_framework.build_configurations.each do |config|
+            config.build_settings['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
+            config.build_settings['CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER'] = 'NO'
+            config.build_settings['CLANG_WARN_NON_MODULAR_INCLUDE_IN_FRAMEWORK_MODULE'] = 'NO'
+            other_cflags = config.build_settings['OTHER_CFLAGS'] || []
+            other_cflags = [other_cflags] if other_cflags.is_a?(String)
+            other_cflags.delete_if { |flag| flag.to_s.include?('non-modular-include-in-framework-module') }
+            other_cflags << '-Wno-error=non-modular-include-in-framework-module'
+            other_cflags << '-Wno-non-modular-include-in-framework-module'
+            config.build_settings['OTHER_CFLAGS'] = other_cflags
+          end
+          project.save
+          RUBY
+      
       - name: Create export options
         script: |
           cat > $HOME/export_options.plist <<EOF
@@ -91,110 +106,31 @@ workflows:
           </dict>
           </plist>
           EOF
-
-      - name: Fix Podfile and reinstall pods (non-modular warnings)
-        script: |
-          set -e
-          if [ -f "Podfile" ]; then
-            pod install
-            find Pods -name "*.xcconfig" -type f -exec sed -i '' 's/-Werror=non-modular-include-in-framework-module//g' {} \;
-            find Pods -name "*.xcconfig" -type f -exec sed -i '' 's/-Wnon-modular-include-in-framework-module//g' {} \;
-            echo "Modified xcconfig files to relax non-modular include flags"
-          fi
-
-      - name: Update Xcode project settings
-        script: |
-          set -e
-          gem install xcodeproj || true
-          ruby <<'RUBY'
-          require 'xcodeproj'
-          project = Xcodeproj::Project.open('Unity-iPhone.xcodeproj')
-          main_target = project.targets.find { |t| t.name == 'Unity-iPhone' }
-          main_target.build_configurations.each do |config|
-            config.build_settings['CODE_SIGN_STYLE'] = 'Manual'
-            config.build_settings['CODE_SIGN_IDENTITY'] = ENV['CERTIFICATE_NAME']
-            config.build_settings['DEVELOPMENT_TEAM'] = 'JQ8ZF3V63Z'
-            config.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = ENV['PROFILE_NAME']
-          end
-          framework_target = project.targets.find { |t| t.name == 'UnityFramework' }
-          framework_target.build_configurations.each do |config|
-            config.build_settings['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
-            config.build_settings['CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER'] = 'NO'
-            config.build_settings['CLANG_WARN_NON_MODULAR_INCLUDE_IN_FRAMEWORK_MODULE'] = 'NO'
-            config.build_settings['OTHER_CFLAGS'] = [
-              '-Wno-error=non-modular-include-in-framework-module',
-              '-Wno-non-modular-include-in-framework-module'
-            ]
-          end
-          project.save
-          RUBY
-
-      - name: Fix Unity version defines
-        script: |
-          set -e
-          gem install xcodeproj || true
-          ruby <<'RUBY'
-          require 'xcodeproj'
-          project = Xcodeproj::Project.open('Unity-iPhone.xcodeproj')
-          unity_version = '2022.3.621f2'
-          ver, maj, min = unity_version.match(/(\d+)\.(\d+)\.(\d+)/).captures
-          project.targets.each do |target|
-            target.build_configurations.each do |config|
-              defs = config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || []
-              defs = [defs] if defs.is_a?(String)
-              defs.delete_if { |d| d =~ /UNITY_VERSION_/ }
-              defs << "UNITY_VERSION_VER=#{ver}"
-              defs << "UNITY_VERSION_MAJ=#{maj}"
-              defs << "UNITY_VERSION_MIN=#{min}"
-              config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = defs
-            end
-          end
-          project.save
-          RUBY
-
-      - name: Strip leftover Google Ads frameworks (Unity export cleanup)
-        script: |
-          set -e
-          PBX="Unity-iPhone.xcodeproj/project.pbxproj"
-          if [ -f "$PBX" ]; then
-            echo "Cleaning GoogleMobileAds and related frameworks..."
-            sed -i '' '/GoogleMobileAds/d' "$PBX" || true
-            sed -i '' '/GoogleUserMessagingPlatform/d' "$PBX" || true
-            sed -i '' '/GAD/d' "$PBX" || true
-            sed -i '' '/Google-Mobile-Ads-SDK/d' "$PBX" || true
-            sed -i '' '/XCFrameworkIntermediates\/Google/d' "$PBX" || true
-            echo "✅ Removed Ads framework search paths and references."
-          else
-            echo "No project.pbxproj found — skipping cleanup."
-          fi
-
+      
       - name: Build IPA
         script: |
           set -e
-          if [ -f "$CM_ENV" ]; then
-            source "$CM_ENV"
-          fi
-          echo "BUILD_USES_PODS=$BUILD_USES_PODS"
-          if [ "${BUILD_USES_PODS}" = "true" ]; then
-            echo "Building from workspace (CocoaPods detected)"
+          
+          if [ -f "Unity-iPhone.xcworkspace" ]; then
+            echo "Building with workspace (CocoaPods)"
             xcode-project build-ipa \
-              --workspace "$XCODE_WORKSPACE" \
+              --workspace "Unity-iPhone.xcworkspace" \
               --scheme "$XCODE_SCHEME" \
               --export-options-plist "$HOME/export_options.plist"
           else
-            echo "Building from project (no Pods detected)"
+            echo "Building with project"
             xcode-project build-ipa \
               --project "$XCODE_PROJECT" \
               --scheme "$XCODE_SCHEME" \
               --export-options-plist "$HOME/export_options.plist"
           fi
-
+    
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
-
+    
     publishing:
       email:
         recipients:
@@ -202,7 +138,7 @@ workflows:
         notify:
           success: true
           failure: true
-
+      
       app_store_connect:
         api_key: $APP_STORE_CONNECT_PRIVATE_KEY
         key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
