@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		00000000008063A1000160D3 /* libiPhone-lib.a in Frameworks */ = {isa = PBXBuildFile; fileRef = D8A1C72A0E8063A1000160D3 /* libiPhone-lib.a */; };
 		030A68812E193A334BDD7087 /* iOSStepCounter.mm in Sources */ = {isa = PBXBuildFile; fileRef = 2E23E0EB80EBE2A174954738 /* iOSStepCounter.mm */; };
+		0A1A44DE817B13DB4E7E9F29 /* Dummy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4C644198423874EFB29146F /* Dummy.swift */; };
 		108959862548F94A325ECC2D /* unity-plugin-library.a in Frameworks */ = {isa = PBXBuildFile; fileRef = C684380BEA113884C86ACE5A /* unity-plugin-library.a */; };
 		1D45A5CCCCC4E76191AAF1D0 /* libil2cpp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = EE54DC7E56FA015DDC9659BD /* libil2cpp.a */; };
 		29A86990FC29003240A99753 /* SafariServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9D74D2B30111D2B20C5127FF /* SafariServices.framework */; };
@@ -108,7 +109,6 @@
 		CBC01F7A2E4EB71DAD8DFE58 /* TrackingAuthorizationManager.h in Headers */ = {isa = PBXBuildFile; fileRef = B9F15083B814B2ED4289677F /* TrackingAuthorizationManager.h */; };
 		D085C06443DB1B1B5C6637B6 /* LaunchScreen-iPad.png in Resources */ = {isa = PBXBuildFile; fileRef = D556450C3DBEECE838996A3D /* LaunchScreen-iPad.png */; };
 		D9B2B6DD21A52DABBBE69B51 /* TrackingAuthorizationManager.m in Sources */ = {isa = PBXBuildFile; fileRef = C90F2FEBEE32B020C3F69E3A /* TrackingAuthorizationManager.m */; };
-		E40C4A378C01A5E82AE5F15A /* Dummy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 738748EE945D111134739645 /* Dummy.swift */; };
 		EE5EA3140646C81B586D4583 /* SafariView.mm in Sources */ = {isa = PBXBuildFile; fileRef = F66C956E332B7CBA5730EF30 /* SafariView.mm */; };
 		F5C03E9DD3BF40D8EC0F4404 /* LaunchScreen-iPhonePortrait.png in Resources */ = {isa = PBXBuildFile; fileRef = 681AA63C19788ACA381FB8C1 /* LaunchScreen-iPhonePortrait.png */; };
 /* End PBXBuildFile section */
@@ -346,7 +346,6 @@
 		71520C37DB84A0B4A8E0F46F /* System.Xml.Linq_CodeGen.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = System.Xml.Linq_CodeGen.c; path = Il2CppOutputProject/Source/il2cppOutput/System.Xml.Linq_CodeGen.c; sourceTree = SOURCE_ROOT; };
 		727353E0A17F3CD26C387C4B /* UnityEngine.UIModule_CodeGen.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = UnityEngine.UIModule_CodeGen.c; path = Il2CppOutputProject/Source/il2cppOutput/UnityEngine.UIModule_CodeGen.c; sourceTree = SOURCE_ROOT; };
 		733D2142097013827A6FD7A8 /* Il2CppGenericClassTable.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = Il2CppGenericClassTable.c; path = Il2CppOutputProject/Source/il2cppOutput/Il2CppGenericClassTable.c; sourceTree = SOURCE_ROOT; };
-		738748EE945D111134739645 /* Dummy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dummy.swift; sourceTree = SOURCE_ROOT; };
 		73E1EB45A942E11178F3915F /* UnityEngine.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = UnityEngine.cpp; path = Il2CppOutputProject/Source/il2cppOutput/UnityEngine.cpp; sourceTree = SOURCE_ROOT; };
 		750BF4D08D860C9A70ACE432 /* System.Xml__12.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = System.Xml__12.cpp; path = Il2CppOutputProject/Source/il2cppOutput/System.Xml__12.cpp; sourceTree = SOURCE_ROOT; };
 		76A06ED55BC26ABEC74D9B5E /* UnityEngine.UnityWebRequestTextureModule_CodeGen.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = UnityEngine.UnityWebRequestTextureModule_CodeGen.c; path = Il2CppOutputProject/Source/il2cppOutput/UnityEngine.UnityWebRequestTextureModule_CodeGen.c; sourceTree = SOURCE_ROOT; };
@@ -523,6 +522,7 @@
 		B38CA49857850503CBA3E1F4 /* GoogleMobileAds.Core_CodeGen.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = GoogleMobileAds.Core_CodeGen.c; path = Il2CppOutputProject/Source/il2cppOutput/GoogleMobileAds.Core_CodeGen.c; sourceTree = SOURCE_ROOT; };
 		B39436E255FF5376259080BE /* mscorlib__6.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = mscorlib__6.cpp; path = Il2CppOutputProject/Source/il2cppOutput/mscorlib__6.cpp; sourceTree = SOURCE_ROOT; };
 		B3B3B55ACB389C47124F63DC /* System.Xml__9.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = System.Xml__9.cpp; path = Il2CppOutputProject/Source/il2cppOutput/System.Xml__9.cpp; sourceTree = SOURCE_ROOT; };
+		B4C644198423874EFB29146F /* Dummy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dummy.swift; sourceTree = SOURCE_ROOT; };
 		B58EF12BF9B65BC74A92DC07 /* AppleRequiredReasonCSharpAPIs.txt */ = {isa = PBXFileReference; lastKnownFileType = text; name = AppleRequiredReasonCSharpAPIs.txt; path = UnityFramework/AppleRequiredReasonCSharpAPIs.txt; sourceTree = SOURCE_ROOT; };
 		B65026F4E0A439EAE4490865 /* UnityEngine.IMGUIModule_CodeGen.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = UnityEngine.IMGUIModule_CodeGen.c; path = Il2CppOutputProject/Source/il2cppOutput/UnityEngine.IMGUIModule_CodeGen.c; sourceTree = SOURCE_ROOT; };
 		B662E7588FD9F79EDCF63D17 /* Il2CppCCalculateFieldValues.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = Il2CppCCalculateFieldValues.cpp; path = Il2CppOutputProject/Source/il2cppOutput/Il2CppCCalculateFieldValues.cpp; sourceTree = SOURCE_ROOT; };
@@ -781,7 +781,7 @@
 				5A3A1B4C3FB1FC90023B942E /* LaunchScreen-iPhone.storyboard */,
 				1E24B93E9D27D99850693BAF /* LaunchScreen-iPhoneLandscape.png */,
 				681AA63C19788ACA381FB8C1 /* LaunchScreen-iPhonePortrait.png */,
-				738748EE945D111134739645 /* Dummy.swift */,
+				B4C644198423874EFB29146F /* Dummy.swift */,
 			);
 			name = CustomTemplate;
 			sourceTree = "<group>";
@@ -1715,7 +1715,7 @@
 				EE5EA3140646C81B586D4583 /* SafariView.mm in Sources */,
 				030A68812E193A334BDD7087 /* iOSStepCounter.mm in Sources */,
 				4AF8EE5A3A227D8C885CB90E /* SkAdNetworkManager.m in Sources */,
-				E40C4A378C01A5E82AE5F15A /* Dummy.swift in Sources */,
+				0A1A44DE817B13DB4E7E9F29 /* Dummy.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
