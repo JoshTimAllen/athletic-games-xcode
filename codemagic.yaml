@@ -9,7 +9,7 @@ workflows:
       vars:
         XCODE_PROJECT: "Unity-iPhone.xcodeproj"
         XCODE_SCHEME: "Unity-iPhone"
-      xcode: 14.3.1
+      xcode: 16.4
       cocoapods: default
     
     triggering:
