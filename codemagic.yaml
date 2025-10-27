@@ -1,4 +1,121 @@
-workflows:
+- name: Update Xcode project with signing and disable GameAssembly
+        script: |
+          set -e
+          gem install xcodeproj --no-document || true
+          
+          # FIRST: Clean up xcconfig files that may have the bad flags
+          echo "🧹 Cleaning xcconfig files..."
+          find . -name "*.xcconfig" -type f | while read -r file; do
+            if grep -q "GameAssembly\|/Google-Mobile-Ads-SDK\|/GoogleUserMessagingPlatform" "$file" 2>/dev/null; then
+              echo "  Cleaning $file"
+              sed -i '' 's/-lGameAssembly//g' "$file"
+              sed -i '' 's|-L/Google-Mobile-Ads-SDK||g' "$file"
+              sed -i '' 's|-L/GoogleUserMessagingPlatform||g' "$file"
+            fi
+          done
+          
+          ruby <<'RUBY'
+          require 'xcodeproj'
+          require 'shellwords'
+          project = Xcodeproj::Project.open('Unity-iPhone.xcodeproj')
+          
+          # Main app target - needs signing
+          target = project.targets.find { |t| t.name == 'Unity-iPhone' }
+          target.build_configurations.each do |config|
+            config.build_settings['CODE_SIGN_STYLE'] = 'Manual'
+            config.build_settings['CODE_SIGN_IDENTITY'] = ENV['CERTIFICATE_NAME']
+            config.build_settings['DEVELOPMENT_TEAM'] = 'JQ8ZF3V63Z'
+            config.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = ENV['PROFILE_NAME']
+            config.build_settings['ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES'] = 'YES'
+          end
+          
+          # UnityFramework - use same signing identity as main app, but no provisioning profile
+          unity_framework = project.targets.find { |t| t.name == 'UnityFramework' }
+          unity_framework.build_configurations.each do |config|
+            config.build_settings['CODE_SIGN_STYLE'] = 'Manual'
+            config.build_settings['CODE_SIGN_IDENTITY'] = ENV['CERTIFICATE_NAME']
+            config.build_settings['DEVELOPMENT_TEAM'] = 'JQ8ZF3V63Z'
+            config.build_settings.delete('PROVISIONING_PROFILE_SPECIFIER')
+            config.build_settings.delete('PROVISIONING_PROFILE')
+            config.build_settings['CODE_SIGN_IDENTITY[sdk=iphoneos*]'] = ENV['CERTIFICATE_NAME']
+            
+            config.build_settings['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
+            config.build_settings['CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER'] = 'NO'
+            config.build_settings['CLANG_WARN_NON_MODULAR_INCLUDE_IN_FRAMEWORK_MODULE'] = 'NO'
+            
+            other_cflags = config.build_settings['OTHER_CFLAGS'] || []
+            other_cflags = [other_cflags] if other_cflags.is_a?(String)
+            other_cflags.delete_if { |flag| flag.to_s.include?('non-modular-include-in-framework-module') }
+            other_cflags << '-Wno-error=non-modular-include-in-framework-module'
+            other_cflags << '-Wno-non-modular-include-in-framework-module'
+            other_cflags << '-Wno-atomic-memory-ordering'
+            config.build_settings['OTHER_CFLAGS'] = other_cflags.uniq
+            
+            config.build_settings['ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES'] = 'NO'
+            config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
+            config.build_settings['ENABLE_BITCODE'] = 'NO'
+            
+            # CRITICAL: Completely replace OTHER_LDFLAGS to ensure no GameAssembly
+            config.build_settings['OTHER_LDFLAGS'] = ['$(inherited)', '-ObjC']
+            
+            # CRITICAL: Completely replace LIBRARY_SEARCH_PATHS  
+            config.build_settings['LIBRARY_SEARCH_PATHS'] = [
+              '$(inherited)',
+              '${PODS_CONFIGURATION_BUILD_DIR}/Google-Mobile-Ads-SDK',
+              '${PODS_CONFIGURATION_BUILD_DIR}/GoogleUserMessagingPlatform',
+              '$(PROJECT_DIR)/Libraries'
+            ]
+            
+            # Ensure LD_RUNPATH_SEARCH_PATHS
+            config.build_settings['LD_RUNPATH_SEARCH_PATHS'] = [
+              '$(inherited)',
+              '@executable_path/Frameworks',
+              '@loader_path/Frameworks'
+            ]
+          end
+          
+          # GameAssembly - disable the build script
+          game_assembly = project.targets.find { |t| t.name == 'GameAssembly' }
+          if game_assembly
+            game_assembly.build_configurations.each do |config|
+              config.build_settings['CODE_SIGN_STYLE'] = 'Automatic'
+              config.build_settings['DEVELOPMENT_TEAM'] = 'JQ8ZF3V63Z'
+              config.build_settings.delete('PROVISIONING_PROFILE_SPECIFIER')
+              config.build_settings.delete('PROVISIONING_PROFILE')
+            end
+            
+            game_assembly.shell_script_build_phases.each do |phase|
+              phase.shell_script = 'echo "Skipping GameAssembly IL2CPP compilation"; exit 0'
+            end
+            
+            puts "✅ Disabled GameAssembly build script"
+          end
+          
+          project.save
+          RUBY
+          
+          # Fix Pods targets
+          ruby <<'RUBY'
+          require 'xcodeproj'
+          pods_project = Xcodeproj::Project.open('Pods/Pods.xcodeproj')
+          
+          pods_project.targets.each do |target|
+            target.build_configurations.each do |config|
+              config.build_settings['CODE_SIGN_STYLE'] = 'Automatic'
+              config.build_settings['CODE_SIGN_IDENTITY'] = ''
+              config.build_settings['DEVELOPMENT_TEAM'] = ''
+              config.build_settings.delete('PROVISIONING_PROFILE_SPECIFIER')
+              config.build_settings.delete('PROVISIONING_PROFILE')
+            end
+          end
+          
+          pods_project.save
+          RUBY
+          
+          # FINAL: Direct project.pbxproj text replacement as last resort
+          echo "🔧 Final cleanup: direct project.pbxproj text replacement..."
+          sed -i '' 's/-lGameAssembly//g' Unity-iPhone.xcodeproj/project.pbxproj
+          sed -i '' 's|"-L/Google-Mobile-Ads-SDKworkflows:
   ios-app-store:
     name: iOS App Store Build
     max_build_duration: 120
@@ -137,7 +254,6 @@ workflows:
           
           ruby <<'RUBY'
           require 'xcodeproj'
-          require 'shellwords'
           project = Xcodeproj::Project.open('Unity-iPhone.xcodeproj')
           
           # Main app target - needs signing
@@ -176,10 +292,17 @@ workflows:
             config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
             config.build_settings['ENABLE_BITCODE'] = 'NO'
             
-            # Ensure proper library search paths
+            # Remove GameAssembly from linker flags
+            other_ldflags = config.build_settings['OTHER_LDFLAGS'] || []
+            other_ldflags = [other_ldflags] if other_ldflags.is_a?(String)
+            other_ldflags = other_ldflags.flat_map { |f| f.to_s.split }.reject { |f| f == '-lGameAssembly' }
+            other_ldflags << '$(inherited)'
+            other_ldflags << '-ObjC' unless other_ldflags.include?('-ObjC')
+            config.build_settings['OTHER_LDFLAGS'] = other_ldflags.uniq
+            
+            # Add library search paths
             search_paths = config.build_settings['LIBRARY_SEARCH_PATHS'] || []
             search_paths = [search_paths] if search_paths.is_a?(String)
-            search_paths = search_paths.reject { |p| p == '/Google-Mobile-Ads-SDK' || p == '/GoogleUserMessagingPlatform' }
             search_paths << '$(inherited)'
             search_paths << '${PODS_CONFIGURATION_BUILD_DIR}/Google-Mobile-Ads-SDK'
             search_paths << '${PODS_CONFIGURATION_BUILD_DIR}/GoogleUserMessagingPlatform'
@@ -195,7 +318,7 @@ workflows:
             config.build_settings['LD_RUNPATH_SEARCH_PATHS'] = runpath.uniq
           end
           
-          # GameAssembly - disable the build script (keep target present)
+          # GameAssembly - disable the build script
           game_assembly = project.targets.find { |t| t.name == 'GameAssembly' }
           if game_assembly
             game_assembly.build_configurations.each do |config|
@@ -204,64 +327,13 @@ workflows:
               config.build_settings.delete('PROVISIONING_PROFILE_SPECIFIER')
               config.build_settings.delete('PROVISIONING_PROFILE')
             end
+            
+            # Replace the script content to skip execution
             game_assembly.shell_script_build_phases.each do |phase|
               phase.shell_script = 'echo "Skipping GameAssembly IL2CPP compilation - using pre-built library"; exit 0'
             end
+            
             puts "✅ Disabled GameAssembly build script"
-          end
-          
-          # ---------- GLOBAL SCRUB: remove stray -lGameAssembly and bad -L flags everywhere ----------
-          scrub_ldflags = lambda do |raw|
-            array =
-              if raw.is_a?(String)
-                Shellwords.split(raw)
-              elsif raw.is_a?(Array)
-                raw.flat_map { |f| f.is_a?(String) ? Shellwords.split(f) : [] }
-              else
-                []
-              end
-            array.reject! { |f| f =~ /^-lGameAssembly$/ }
-            array.reject! { |f| f =~ %r{^-L/Google(-Mobile-Ads-SDK|UserMessagingPlatform)$} }
-            array
-          end
-          
-          # Project-level configurations
-          project.build_configurations.each do |cfg|
-            cfg.build_settings['OTHER_LDFLAGS'] = scrub_ldflags.call(cfg.build_settings['OTHER_LDFLAGS'])
-            # Also clean project-level LIBRARY_SEARCH_PATHS if bad absolute entries slipped in
-            lsp = cfg.build_settings['LIBRARY_SEARCH_PATHS'] || []
-            lsp = [lsp] if lsp.is_a?(String)
-            lsp = lsp.reject { |p| p == '/Google-Mobile-Ads-SDK' || p == '/GoogleUserMessagingPlatform' }
-            cfg.build_settings['LIBRARY_SEARCH_PATHS'] = lsp
-          end
-          
-          # Target-level configurations
-          project.targets.each do |t|
-            t.build_configurations.each do |cfg|
-              cfg.build_settings['OTHER_LDFLAGS'] = scrub_ldflags.call(cfg.build_settings['OTHER_LDFLAGS'])
-              lsp = cfg.build_settings['LIBRARY_SEARCH_PATHS'] || []
-              lsp = [lsp] if lsp.is_a?(String)
-              lsp = lsp.reject { |p| p == '/Google-Mobile-Ads-SDK' || p == '/GoogleUserMessagingPlatform' }
-              cfg.build_settings['LIBRARY_SEARCH_PATHS'] = lsp
-            end
-          end
-          # -----------------------------------------------------------------------------------------
-          
-          # 🔧 Final cleanup: remove lingering linker and search path flags
-          unity_framework = project.targets.find { |t| t.name == 'UnityFramework' }
-          if unity_framework
-            unity_framework.build_configurations.each do |config|
-              flags = config.build_settings['OTHER_LDFLAGS'] || []
-              flags = [flags] if flags.is_a?(String)
-              flags.reject! { |f| f.include?('GameAssembly') }
-              config.build_settings['OTHER_LDFLAGS'] = flags
-
-              search_paths = config.build_settings['LIBRARY_SEARCH_PATHS'] || []
-              search_paths = [search_paths] if search_paths.is_a?(String)
-              search_paths.reject! { |p| p == '/Google-Mobile-Ads-SDK' || p == '/GoogleUserMessagingPlatform' }
-              config.build_settings['LIBRARY_SEARCH_PATHS'] = search_paths
-            end
-            puts "✅ Cleaned UnityFramework flags and paths"
           end
           
           project.save
@@ -284,10 +356,6 @@ workflows:
           
           pods_project.save
           RUBY
-          
-          # Quick verification (read-only): show any remaining GameAssembly and bad -L flags
-          echo "🔍 Verifying: searching for GameAssembly and bad -L entries..."
-          (grep -n "GameAssembly" Unity-iPhone.xcodeproj/project.pbxproj || true) && (grep -n "\-L/Google" Unity-iPhone.xcodeproj/project.pbxproj || true)
           
           echo "✅ Project configuration complete"
       
