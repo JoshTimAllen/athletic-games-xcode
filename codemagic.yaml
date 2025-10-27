@@ -52,6 +52,11 @@ workflows:
       - name: Install CocoaPods dependencies
         script: |
           if [ -f "Podfile" ]; then
+            # Add Google Mobile Ads if not present
+            if ! grep -q "Google-Mobile-Ads-SDK" Podfile; then
+              echo "pod 'Google-Mobile-Ads-SDK'" >> Podfile
+            fi
+            
             pod install
             
             find Pods -name "*.xcconfig" -type f -exec sed -i '' 's/-Werror=non-modular-include-in-framework-module//g' {} \;
@@ -66,6 +71,7 @@ workflows:
           ruby <<'RUBY'
           require 'xcodeproj'
           project = Xcodeproj::Project.open('Unity-iPhone.xcodeproj')
+          
           target = project.targets.find { |t| t.name == 'Unity-iPhone' }
           target.build_configurations.each do |config|
             config.build_settings['CODE_SIGN_STYLE'] = 'Manual'
@@ -73,11 +79,13 @@ workflows:
             config.build_settings['DEVELOPMENT_TEAM'] = 'JQ8ZF3V63Z'
             config.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = ENV['PROFILE_NAME']
           end
+          
           unity_framework = project.targets.find { |t| t.name == 'UnityFramework' }
           unity_framework.build_configurations.each do |config|
             config.build_settings['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
             config.build_settings['CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER'] = 'NO'
             config.build_settings['CLANG_WARN_NON_MODULAR_INCLUDE_IN_FRAMEWORK_MODULE'] = 'NO'
+            
             other_cflags = config.build_settings['OTHER_CFLAGS'] || []
             other_cflags = [other_cflags] if other_cflags.is_a?(String)
             other_cflags.delete_if { |flag| flag.to_s.include?('non-modular-include-in-framework-module') }
@@ -85,6 +93,7 @@ workflows:
             other_cflags << '-Wno-non-modular-include-in-framework-module'
             config.build_settings['OTHER_CFLAGS'] = other_cflags
           end
+          
           project.save
           RUBY
       
