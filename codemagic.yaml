@@ -247,15 +247,21 @@ workflows:
           end
           # -----------------------------------------------------------------------------------------
           
-          # 🔧 Force remove leftover GameAssembly linker flag from UnityFramework
+          # 🔧 Final cleanup: remove lingering linker and search path flags
           unity_framework = project.targets.find { |t| t.name == 'UnityFramework' }
           if unity_framework
             unity_framework.build_configurations.each do |config|
               flags = config.build_settings['OTHER_LDFLAGS'] || []
               flags = [flags] if flags.is_a?(String)
-              flags.reject! { |f| f.to_s.strip == '-lGameAssembly' }
+              flags.reject! { |f| f.include?('GameAssembly') }
               config.build_settings['OTHER_LDFLAGS'] = flags
+
+              search_paths = config.build_settings['LIBRARY_SEARCH_PATHS'] || []
+              search_paths = [search_paths] if search_paths.is_a?(String)
+              search_paths.reject! { |p| p == '/Google-Mobile-Ads-SDK' || p == '/GoogleUserMessagingPlatform' }
+              config.build_settings['LIBRARY_SEARCH_PATHS'] = search_paths
             end
+            puts "✅ Cleaned UnityFramework flags and paths"
           end
           
           project.save
