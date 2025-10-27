@@ -247,6 +247,17 @@ workflows:
           end
           # -----------------------------------------------------------------------------------------
           
+          # 🔧 Force remove leftover GameAssembly linker flag from UnityFramework
+          unity_framework = project.targets.find { |t| t.name == 'UnityFramework' }
+          if unity_framework
+            unity_framework.build_configurations.each do |config|
+              flags = config.build_settings['OTHER_LDFLAGS'] || []
+              flags = [flags] if flags.is_a?(String)
+              flags.reject! { |f| f.to_s.strip == '-lGameAssembly' }
+              config.build_settings['OTHER_LDFLAGS'] = flags
+            end
+          end
+          
           project.save
           RUBY
           
