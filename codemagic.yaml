@@ -54,14 +54,20 @@ workflows:
           set -e
           
           if [ -f "Podfile" ]; then
-            echo "Found Podfile, adding Google Mobile Ads..."
+            echo "Found Podfile, checking configuration..."
             
-            if ! grep -q "Google-Mobile-Ads-SDK" Podfile; then
-              echo "pod 'Google-Mobile-Ads-SDK'" >> Podfile
-              echo "Added Google-Mobile-Ads-SDK to Podfile"
-            else
-              echo "Google-Mobile-Ads-SDK already in Podfile"
-            fi
+            # Backup original Podfile
+            cp Podfile Podfile.backup
+            
+            # Create a proper Podfile for Unity
+            cat > Podfile <<'EOF'
+platform :ios, '13.0'
+
+target 'Unity-iPhone' do
+  pod 'Google-Mobile-Ads-SDK'
+  pod 'GoogleUserMessagingPlatform'
+end
+EOF
             
             echo "Running pod install..."
             pod install
@@ -70,12 +76,14 @@ workflows:
               echo "✅ Workspace created successfully"
             else
               echo "❌ ERROR: Workspace not created!"
+              exit 1
             fi
             
             find Pods -name "*.xcconfig" -type f -exec sed -i '' 's/-Werror=non-modular-include-in-framework-module//g' {} \;
             find Pods -name "*.xcconfig" -type f -exec sed -i '' 's/-Wnon-modular-include-in-framework-module//g' {} \;
           else
             echo "❌ ERROR: No Podfile found!"
+            exit 1
           fi
       
       - name: Update Xcode project with signing
