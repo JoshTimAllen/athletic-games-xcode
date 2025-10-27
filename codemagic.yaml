@@ -247,34 +247,71 @@ workflows:
           RUBY
 
 
-      - name: Remove GameAssembly linker flag
+           - name: Remove GameAssembly linker flag
         script: |
-          echo "🧹 Removing -lGameAssembly from UnityFramework linker flags..."
+          echo "🧹 Removing GameAssembly references (flags & build files)..."
           gem install xcodeproj --no-document || true
           ruby <<'RUBY'
           require 'xcodeproj'
-          project_path = 'Unity-iPhone.xcodeproj'
-          project = Xcodeproj::Project.open(project_path)
-          unity_target = project.targets.find { |t| t.name == 'UnityFramework' }
-          if unity_target
-            unity_target.build_configurations.each do |config|
-              ldflags = config.build_settings['OTHER_LDFLAGS'] || []
-              ldflags = [ldflags] if ldflags.is_a?(String)
-              before = ldflags.dup
-              ldflags.reject! { |flag| flag.strip == '-lGameAssembly' || flag.strip == '$(inherited) -lGameAssembly' }
-              if before != ldflags
-                puts "✅ Removed -lGameAssembly from #{config.name}"
-              else
-                puts "ℹ️ No -lGameAssembly found in #{config.name}"
-              end
-              config.build_settings['OTHER_LDFLAGS'] = ldflags.uniq
+          require 'shellwords'
+
+          def scrub_ldflags!(settings)
+            return unless settings
+            # Keys we want to scrub
+            keys = ['OTHER_LDFLAGS', 'OTHER_LIBTOOLFLAGS',
+                    'OTHER_LDFLAGS[sdk=iphoneos*]', 'OTHER_LIBTOOLFLAGS[sdk=iphoneos*]']
+            keys.each do |k|
+              next unless settings.key?(k)
+              v = settings[k]
+              tokens =
+                if v.is_a?(Array)
+                  v.flat_map { |e| e.to_s.shellsplit rescue e.to_s.split(/\s+/) }
+                else
+                  v.to_s.shellsplit rescue v.to_s.split(/\s+/)
+                end
+              before = tokens.dup
+              tokens.reject! { |t| t == '-lGameAssembly' }
+              settings[k] =
+                if v.is_a?(Array)
+                  tokens
+                else
+                  tokens.join(' ')
+                end
+              puts "✅ Scrubbed #{k}" if before != tokens
             end
-            project.save
-          else
-            puts "⚠️ UnityFramework target not found!"
           end
+
+          project = Xcodeproj::Project.open('Unity-iPhone.xcodeproj')
+
+          # 1) Project-level configs
+          project.build_configurations.each { |cfg| scrub_ldflags!(cfg.build_settings) }
+
+          # 2) All targets
+          project.targets.each do |t|
+            t.build_configurations.each { |cfg| scrub_ldflags!(cfg.build_settings) }
+          end
+
+          # 3) Remove libGameAssembly.a from "Link Binary With Libraries" if present
+          project.targets.each do |t|
+            t.frameworks_build_phase.files.to_a.each do |f|
+              file_ref = f.file_ref
+              next unless file_ref && file_ref.display_name == 'libGameAssembly.a'
+              t.frameworks_build_phase.remove_file_reference(file_ref)
+              puts "🗑️  Removed libGameAssembly.a from #{t.name}"
+            end
+          end
+
+          project.save
           RUBY
 
+          # Verify: show any leftover references
+          echo "🔎 Verifying no 'GameAssembly' remains in project file..."
+          if grep -R "GameAssembly" Unity-iPhone.xcodeproj/project.pbxproj; then
+            echo "⚠️ Still found 'GameAssembly' above. We'll fail to make it obvious."
+            exit 1
+          else
+            echo "✅ Verified: no 'GameAssembly' references remain."
+          fi
 
       - name: Fix IL2CPP and library paths
         script: |
