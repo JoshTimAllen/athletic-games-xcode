@@ -94,9 +94,7 @@ workflows:
         script: |
           set -e
           if [ -f "Podfile" ]; then
-            # ensure Pods are installed (idempotent)
             pod install
-            # remove strict flags if any pod adds them
             find Pods -name "*.xcconfig" -type f -exec sed -i '' 's/-Werror=non-modular-include-in-framework-module//g' {} \;
             find Pods -name "*.xcconfig" -type f -exec sed -i '' 's/-Wnon-modular-include-in-framework-module//g' {} \;
             echo "Modified xcconfig files to relax non-modular include flags"
@@ -131,6 +129,30 @@ workflows:
             ]
           end
 
+          project.save
+          RUBY
+
+      - name: Fix Unity version defines
+        script: |
+          set -e
+          gem install xcodeproj || true
+          ruby <<'RUBY'
+          require 'xcodeproj'
+          project = Xcodeproj::Project.open('Unity-iPhone.xcodeproj')
+          # Your exact Unity version
+          unity_version = '2022.3.621f2'
+          ver, maj, min = unity_version.match(/(\d+)\.(\d+)\.(\d+)/).captures
+          project.targets.each do |target|
+            target.build_configurations.each do |config|
+              defs = config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || []
+              defs = [defs] if defs.is_a?(String)
+              defs.delete_if { |d| d =~ /UNITY_VERSION_/ }
+              defs << "UNITY_VERSION_VER=#{ver}"
+              defs << "UNITY_VERSION_MAJ=#{maj}"
+              defs << "UNITY_VERSION_MIN=#{min}"
+              config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = defs
+            end
+          end
           project.save
           RUBY
 
