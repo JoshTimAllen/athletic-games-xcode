@@ -222,6 +222,30 @@ workflows:
           echo "🔍 Checking that GameAssembly script is disabled..."
           grep -R "GameAssembly" Unity-iPhone.xcodeproj || echo "✅ GameAssembly script disabled successfully"
       
+            - name: Ensure libiPhone-lib.a search path
+        script: |
+          echo "📚 Ensuring Xcode project knows about libiPhone-lib.a..."
+          gem install xcodeproj --no-document || true
+          ruby <<'RUBY'
+          require 'xcodeproj'
+          project = Xcodeproj::Project.open('Unity-iPhone.xcodeproj')
+          target = project.targets.find { |t| t.name == 'UnityFramework' }
+          if target
+            target.build_configurations.each do |config|
+              paths = config.build_settings['LIBRARY_SEARCH_PATHS'] || []
+              paths = [paths] if paths.is_a?(String)
+              unless paths.include?('$(PROJECT_DIR)/Libraries')
+                paths << '$(PROJECT_DIR)/Libraries'
+              end
+              config.build_settings['LIBRARY_SEARCH_PATHS'] = paths.uniq
+            end
+            puts "✅ Added $(PROJECT_DIR)/Libraries to LIBRARY_SEARCH_PATHS"
+          else
+            puts "⚠️ UnityFramework target not found!"
+          end
+          project.save
+          RUBY
+
       - name: Fix IL2CPP and library paths
         script: |
           set -e
