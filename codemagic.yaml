@@ -67,10 +67,19 @@ workflows:
             echo "Running pod install..."
             pod install
             
+            echo "Checking for workspace files..."
+            ls -la | grep -i workspace || echo "No workspace files found"
+            ls -la | grep -i xcworkspace || echo "No xcworkspace files found"
+            find . -name "*.xcworkspace" -maxdepth 2 || echo "Find command found nothing"
+            
             if [ -f "Unity-iPhone.xcworkspace" ]; then
               echo "✅ Workspace created successfully"
+            elif [ -d "Unity-iPhone.xcworkspace" ]; then
+              echo "✅ Workspace is a DIRECTORY (correct!)"
             else
               echo "❌ ERROR: Workspace not created!"
+              echo "Current directory contents:"
+              ls -la
               exit 1
             fi
             
