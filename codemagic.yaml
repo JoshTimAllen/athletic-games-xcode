@@ -263,7 +263,9 @@ workflows:
           
           echo "Building with workspace (CocoaPods)"
           
-          # Build archive with detailed output
+          # Build archive - signing is already configured in project settings
+          # Do NOT pass CODE_SIGN_STYLE or PROVISIONING_PROFILE_SPECIFIER on command line
+          # as they apply to ALL targets and cause framework signing errors
           xcodebuild \
             -workspace "Unity-iPhone.xcworkspace" \
             -scheme "$XCODE_SCHEME" \
@@ -271,10 +273,6 @@ workflows:
             -configuration Release \
             archive \
             COMPILER_INDEX_STORE_ENABLE=NO \
-            DEVELOPMENT_TEAM=JQ8ZF3V63Z \
-            CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY="$CERTIFICATE_NAME" \
-            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
             ENABLE_BITCODE=NO \
             | tee "$HOME/xcodebuild_archive.log"
           
