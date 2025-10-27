@@ -1,121 +1,4 @@
-- name: Update Xcode project with signing and disable GameAssembly
-        script: |
-          set -e
-          gem install xcodeproj --no-document || true
-          
-          # FIRST: Clean up xcconfig files that may have the bad flags
-          echo "🧹 Cleaning xcconfig files..."
-          find . -name "*.xcconfig" -type f | while read -r file; do
-            if grep -q "GameAssembly\|/Google-Mobile-Ads-SDK\|/GoogleUserMessagingPlatform" "$file" 2>/dev/null; then
-              echo "  Cleaning $file"
-              sed -i '' 's/-lGameAssembly//g' "$file"
-              sed -i '' 's|-L/Google-Mobile-Ads-SDK||g' "$file"
-              sed -i '' 's|-L/GoogleUserMessagingPlatform||g' "$file"
-            fi
-          done
-          
-          ruby <<'RUBY'
-          require 'xcodeproj'
-          require 'shellwords'
-          project = Xcodeproj::Project.open('Unity-iPhone.xcodeproj')
-          
-          # Main app target - needs signing
-          target = project.targets.find { |t| t.name == 'Unity-iPhone' }
-          target.build_configurations.each do |config|
-            config.build_settings['CODE_SIGN_STYLE'] = 'Manual'
-            config.build_settings['CODE_SIGN_IDENTITY'] = ENV['CERTIFICATE_NAME']
-            config.build_settings['DEVELOPMENT_TEAM'] = 'JQ8ZF3V63Z'
-            config.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = ENV['PROFILE_NAME']
-            config.build_settings['ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES'] = 'YES'
-          end
-          
-          # UnityFramework - use same signing identity as main app, but no provisioning profile
-          unity_framework = project.targets.find { |t| t.name == 'UnityFramework' }
-          unity_framework.build_configurations.each do |config|
-            config.build_settings['CODE_SIGN_STYLE'] = 'Manual'
-            config.build_settings['CODE_SIGN_IDENTITY'] = ENV['CERTIFICATE_NAME']
-            config.build_settings['DEVELOPMENT_TEAM'] = 'JQ8ZF3V63Z'
-            config.build_settings.delete('PROVISIONING_PROFILE_SPECIFIER')
-            config.build_settings.delete('PROVISIONING_PROFILE')
-            config.build_settings['CODE_SIGN_IDENTITY[sdk=iphoneos*]'] = ENV['CERTIFICATE_NAME']
-            
-            config.build_settings['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
-            config.build_settings['CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER'] = 'NO'
-            config.build_settings['CLANG_WARN_NON_MODULAR_INCLUDE_IN_FRAMEWORK_MODULE'] = 'NO'
-            
-            other_cflags = config.build_settings['OTHER_CFLAGS'] || []
-            other_cflags = [other_cflags] if other_cflags.is_a?(String)
-            other_cflags.delete_if { |flag| flag.to_s.include?('non-modular-include-in-framework-module') }
-            other_cflags << '-Wno-error=non-modular-include-in-framework-module'
-            other_cflags << '-Wno-non-modular-include-in-framework-module'
-            other_cflags << '-Wno-atomic-memory-ordering'
-            config.build_settings['OTHER_CFLAGS'] = other_cflags.uniq
-            
-            config.build_settings['ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES'] = 'NO'
-            config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
-            config.build_settings['ENABLE_BITCODE'] = 'NO'
-            
-            # CRITICAL: Completely replace OTHER_LDFLAGS to ensure no GameAssembly
-            config.build_settings['OTHER_LDFLAGS'] = ['$(inherited)', '-ObjC']
-            
-            # CRITICAL: Completely replace LIBRARY_SEARCH_PATHS  
-            config.build_settings['LIBRARY_SEARCH_PATHS'] = [
-              '$(inherited)',
-              '${PODS_CONFIGURATION_BUILD_DIR}/Google-Mobile-Ads-SDK',
-              '${PODS_CONFIGURATION_BUILD_DIR}/GoogleUserMessagingPlatform',
-              '$(PROJECT_DIR)/Libraries'
-            ]
-            
-            # Ensure LD_RUNPATH_SEARCH_PATHS
-            config.build_settings['LD_RUNPATH_SEARCH_PATHS'] = [
-              '$(inherited)',
-              '@executable_path/Frameworks',
-              '@loader_path/Frameworks'
-            ]
-          end
-          
-          # GameAssembly - disable the build script
-          game_assembly = project.targets.find { |t| t.name == 'GameAssembly' }
-          if game_assembly
-            game_assembly.build_configurations.each do |config|
-              config.build_settings['CODE_SIGN_STYLE'] = 'Automatic'
-              config.build_settings['DEVELOPMENT_TEAM'] = 'JQ8ZF3V63Z'
-              config.build_settings.delete('PROVISIONING_PROFILE_SPECIFIER')
-              config.build_settings.delete('PROVISIONING_PROFILE')
-            end
-            
-            game_assembly.shell_script_build_phases.each do |phase|
-              phase.shell_script = 'echo "Skipping GameAssembly IL2CPP compilation"; exit 0'
-            end
-            
-            puts "✅ Disabled GameAssembly build script"
-          end
-          
-          project.save
-          RUBY
-          
-          # Fix Pods targets
-          ruby <<'RUBY'
-          require 'xcodeproj'
-          pods_project = Xcodeproj::Project.open('Pods/Pods.xcodeproj')
-          
-          pods_project.targets.each do |target|
-            target.build_configurations.each do |config|
-              config.build_settings['CODE_SIGN_STYLE'] = 'Automatic'
-              config.build_settings['CODE_SIGN_IDENTITY'] = ''
-              config.build_settings['DEVELOPMENT_TEAM'] = ''
-              config.build_settings.delete('PROVISIONING_PROFILE_SPECIFIER')
-              config.build_settings.delete('PROVISIONING_PROFILE')
-            end
-          end
-          
-          pods_project.save
-          RUBY
-          
-          # FINAL: Direct project.pbxproj text replacement as last resort
-          echo "🔧 Final cleanup: direct project.pbxproj text replacement..."
-          sed -i '' 's/-lGameAssembly//g' Unity-iPhone.xcodeproj/project.pbxproj
-          sed -i '' 's|"-L/Google-Mobile-Ads-SDKworkflows:
+workflows:
   ios-app-store:
     name: iOS App Store Build
     max_build_duration: 120
@@ -153,14 +36,11 @@
           
           echo "📥 Downloading libiPhone-lib.a from Google Drive..."
           
-          # Create Libraries directory if it doesn't exist
           mkdir -p Libraries
           
-          # Download using gdown (pre-installed on Codemagic)
           pip3 install gdown --quiet || true
           gdown "https://drive.google.com/uc?id=${FILE_ID}" -O "${OUTPUT_PATH}"
           
-          # Verify download
           if [ -f "${OUTPUT_PATH}" ]; then
             echo "✅ Successfully downloaded libiPhone-lib.a"
             ls -lh "${OUTPUT_PATH}"
@@ -233,12 +113,10 @@
             rm -rf Pods Podfile.lock
             pod install --repo-update
             
-            echo "Checking for workspace files..."
             if [ -d "Unity-iPhone.xcworkspace" ]; then
               echo "✅ Workspace created successfully"
             else
               echo "❌ ERROR: Workspace not created!"
-              echo "Current directory contents:"
               ls -la
               exit 1
             fi
@@ -252,11 +130,20 @@
           set -e
           gem install xcodeproj --no-document || true
           
+          echo "🧹 Cleaning xcconfig files..."
+          find . -name "*.xcconfig" -type f | while read -r file; do
+            if grep -q "GameAssembly\|/Google-Mobile-Ads-SDK\|/GoogleUserMessagingPlatform" "$file" 2>/dev/null; then
+              echo "  Cleaning $file"
+              sed -i '' 's/-lGameAssembly//g' "$file"
+              sed -i '' 's|-L/Google-Mobile-Ads-SDK||g' "$file"
+              sed -i '' 's|-L/GoogleUserMessagingPlatform||g' "$file"
+            fi
+          done
+          
           ruby <<'RUBY'
           require 'xcodeproj'
           project = Xcodeproj::Project.open('Unity-iPhone.xcodeproj')
           
-          # Main app target - needs signing
           target = project.targets.find { |t| t.name == 'Unity-iPhone' }
           target.build_configurations.each do |config|
             config.build_settings['CODE_SIGN_STYLE'] = 'Manual'
@@ -266,7 +153,6 @@
             config.build_settings['ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES'] = 'YES'
           end
           
-          # UnityFramework - use same signing identity as main app, but no provisioning profile
           unity_framework = project.targets.find { |t| t.name == 'UnityFramework' }
           unity_framework.build_configurations.each do |config|
             config.build_settings['CODE_SIGN_STYLE'] = 'Manual'
@@ -292,33 +178,22 @@
             config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
             config.build_settings['ENABLE_BITCODE'] = 'NO'
             
-            # Remove GameAssembly from linker flags
-            other_ldflags = config.build_settings['OTHER_LDFLAGS'] || []
-            other_ldflags = [other_ldflags] if other_ldflags.is_a?(String)
-            other_ldflags = other_ldflags.flat_map { |f| f.to_s.split }.reject { |f| f == '-lGameAssembly' }
-            other_ldflags << '$(inherited)'
-            other_ldflags << '-ObjC' unless other_ldflags.include?('-ObjC')
-            config.build_settings['OTHER_LDFLAGS'] = other_ldflags.uniq
+            config.build_settings['OTHER_LDFLAGS'] = ['$(inherited)', '-ObjC']
             
-            # Add library search paths
-            search_paths = config.build_settings['LIBRARY_SEARCH_PATHS'] || []
-            search_paths = [search_paths] if search_paths.is_a?(String)
-            search_paths << '$(inherited)'
-            search_paths << '${PODS_CONFIGURATION_BUILD_DIR}/Google-Mobile-Ads-SDK'
-            search_paths << '${PODS_CONFIGURATION_BUILD_DIR}/GoogleUserMessagingPlatform'
-            search_paths << '$(PROJECT_DIR)/Libraries'
-            config.build_settings['LIBRARY_SEARCH_PATHS'] = search_paths.uniq
+            config.build_settings['LIBRARY_SEARCH_PATHS'] = [
+              '$(inherited)',
+              '${PODS_CONFIGURATION_BUILD_DIR}/Google-Mobile-Ads-SDK',
+              '${PODS_CONFIGURATION_BUILD_DIR}/GoogleUserMessagingPlatform',
+              '$(PROJECT_DIR)/Libraries'
+            ]
             
-            # Ensure LD_RUNPATH_SEARCH_PATHS
-            runpath = config.build_settings['LD_RUNPATH_SEARCH_PATHS'] || []
-            runpath = [runpath] if runpath.is_a?(String)
-            runpath << '$(inherited)'
-            runpath << '@executable_path/Frameworks'
-            runpath << '@loader_path/Frameworks'
-            config.build_settings['LD_RUNPATH_SEARCH_PATHS'] = runpath.uniq
+            config.build_settings['LD_RUNPATH_SEARCH_PATHS'] = [
+              '$(inherited)',
+              '@executable_path/Frameworks',
+              '@loader_path/Frameworks'
+            ]
           end
           
-          # GameAssembly - disable the build script
           game_assembly = project.targets.find { |t| t.name == 'GameAssembly' }
           if game_assembly
             game_assembly.build_configurations.each do |config|
@@ -328,9 +203,8 @@
               config.build_settings.delete('PROVISIONING_PROFILE')
             end
             
-            # Replace the script content to skip execution
             game_assembly.shell_script_build_phases.each do |phase|
-              phase.shell_script = 'echo "Skipping GameAssembly IL2CPP compilation - using pre-built library"; exit 0'
+              phase.shell_script = 'echo "Skipping GameAssembly IL2CPP compilation"; exit 0'
             end
             
             puts "✅ Disabled GameAssembly build script"
@@ -339,7 +213,6 @@
           project.save
           RUBY
           
-          # Fix Pods targets
           ruby <<'RUBY'
           require 'xcodeproj'
           pods_project = Xcodeproj::Project.open('Pods/Pods.xcodeproj')
@@ -356,6 +229,13 @@
           
           pods_project.save
           RUBY
+          
+          echo "🔧 Final cleanup: direct project.pbxproj text replacement..."
+          sed -i '' 's/-lGameAssembly//g' Unity-iPhone.xcodeproj/project.pbxproj
+          sed -i '' 's|"-L/Google-Mobile-Ads-SDK"||g' Unity-iPhone.xcodeproj/project.pbxproj
+          sed -i '' 's|"-L/GoogleUserMessagingPlatform"||g' Unity-iPhone.xcodeproj/project.pbxproj
+          sed -i '' 's|/Google-Mobile-Ads-SDK||g' Unity-iPhone.xcodeproj/project.pbxproj
+          sed -i '' 's|/GoogleUserMessagingPlatform||g' Unity-iPhone.xcodeproj/project.pbxproj
           
           echo "✅ Project configuration complete"
       
@@ -382,15 +262,13 @@
         script: |
           set -e
           
-          # Verify workspace exists
           if [ ! -d "Unity-iPhone.xcworkspace" ]; then
-            echo "❌ ERROR: Unity-iPhone.xcworkspace not found. CocoaPods installation may have failed."
+            echo "❌ ERROR: Unity-iPhone.xcworkspace not found"
             exit 1
           fi
           
           echo "Building with workspace (CocoaPods)"
           
-          # Build archive - signing is already configured in project settings
           xcodebuild \
             -workspace "Unity-iPhone.xcworkspace" \
             -scheme "$XCODE_SCHEME" \
@@ -401,7 +279,6 @@
             ENABLE_BITCODE=NO \
             2>&1 | tee "$HOME/xcodebuild_archive.log"
           
-          # Check if archive was created
           if [ ! -d "$HOME/build/Unity-iPhone.xcarchive" ]; then
             echo "❌ Archive failed! Checking logs..."
             echo ""
@@ -415,7 +292,6 @@
           
           echo "✅ Archive created successfully"
           
-          # Export IPA
           xcodebuild \
             -exportArchive \
             -archivePath "$HOME/build/Unity-iPhone.xcarchive" \
@@ -423,7 +299,6 @@
             -exportOptionsPlist "$HOME/export_options.plist" \
             2>&1 | tee "$HOME/xcodebuild_export.log"
           
-          # Copy IPA to expected location
           mkdir -p build/ios/ipa
           cp "$HOME/build/"*.ipa build/ios/ipa/ 2>/dev/null || true
           
