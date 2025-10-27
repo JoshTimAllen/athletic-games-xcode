@@ -175,7 +175,7 @@ workflows:
             config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
             config.build_settings['ENABLE_BITCODE'] = 'NO'
             
-            # Remove GameAssembly from linker flags
+            # Remove GameAssembly from linker flags (target level)
             other_ldflags = config.build_settings['OTHER_LDFLAGS'] || []
             other_ldflags = [other_ldflags] if other_ldflags.is_a?(String)
             other_ldflags = other_ldflags.flat_map { |f| f.to_s.split }.reject { |f| f == '-lGameAssembly' }
@@ -183,12 +183,12 @@ workflows:
             other_ldflags << '-ObjC' unless other_ldflags.include?('-ObjC')
             config.build_settings['OTHER_LDFLAGS'] = other_ldflags.uniq
             
-            # Add library search paths
+            # Add library search paths (use $(...) so Xcode expands it)
             search_paths = config.build_settings['LIBRARY_SEARCH_PATHS'] || []
             search_paths = [search_paths] if search_paths.is_a?(String)
             search_paths << '$(inherited)'
-            search_paths << '${PODS_CONFIGURATION_BUILD_DIR}/Google-Mobile-Ads-SDK'
-            search_paths << '${PODS_CONFIGURATION_BUILD_DIR}/GoogleUserMessagingPlatform'
+            search_paths << '$(PODS_CONFIGURATION_BUILD_DIR)/Google-Mobile-Ads-SDK'
+            search_paths << '$(PODS_CONFIGURATION_BUILD_DIR)/GoogleUserMessagingPlatform'
             search_paths << '$(PROJECT_DIR)/Libraries'
             config.build_settings['LIBRARY_SEARCH_PATHS'] = search_paths.uniq
             
@@ -217,6 +217,22 @@ workflows:
             end
             
             puts "✅ Disabled GameAssembly build script"
+          end
+
+          # 🔧 Make absolutely sure -lGameAssembly is removed everywhere (all targets + project level)
+          (project.targets).each do |t|
+            t.build_configurations.each do |config|
+              ldf = config.build_settings['OTHER_LDFLAGS'] || []
+              ldf = [ldf] if ldf.is_a?(String)
+              ldf = ldf.flat_map { |f| f.to_s.split }.reject { |f| f == '-lGameAssembly' }
+              config.build_settings['OTHER_LDFLAGS'] = ldf.uniq
+            end
+          end
+          project.build_configurations.each do |config|
+            ldf = config.build_settings['OTHER_LDFLAGS'] || []
+            ldf = [ldf] if ldf.is_a?(String)
+            ldf = ldf.flat_map { |f| f.to_s.split }.reject { |f| f == '-lGameAssembly' }
+            config.build_settings['OTHER_LDFLAGS'] = ldf.uniq
           end
           
           project.save
