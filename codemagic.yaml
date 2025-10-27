@@ -183,15 +183,42 @@ workflows:
           require 'xcodeproj'
           project = Xcodeproj::Project.open('Unity-iPhone.xcodeproj')
           
+          # Get Pods project to link frameworks properly
+          pods_project = Xcodeproj::Project.open('Pods/Pods.xcodeproj')
+          
           # Fix UnityFramework target
           unity_framework = project.targets.find { |t| t.name == 'UnityFramework' }
+          
+          # Add Google Ads frameworks to UnityFramework
+          frameworks_group = project.frameworks_group
+          
+          # Find or create reference to Pods frameworks
+          ['GoogleMobileAds', 'UserMessagingPlatform'].each do |framework_name|
+            xcframework_path = "Pods/XCFrameworks/#{framework_name}/#{framework_name}.xcframework"
+            
+            # Check if framework already linked
+            already_linked = unity_framework.frameworks_build_phase.files.any? do |file|
+              file.file_ref && file.file_ref.path && file.file_ref.path.include?(framework_name)
+            end
+            
+            unless already_linked
+              # Add framework reference
+              if File.exist?(xcframework_path)
+                framework_ref = frameworks_group.new_file(xcframework_path)
+                unity_framework.frameworks_build_phase.add_file_reference(framework_ref)
+                puts "Added #{framework_name} to UnityFramework"
+              end
+            end
+          end
+          
           unity_framework.build_configurations.each do |config|
-            # Add Pods library search path
+            # Add Pods library search paths
             search_paths = config.build_settings['LIBRARY_SEARCH_PATHS'] || []
             search_paths = [search_paths] if search_paths.is_a?(String)
             search_paths << '$(inherited)'
             search_paths << '"${PODS_CONFIGURATION_BUILD_DIR}/Google-Mobile-Ads-SDK"'
             search_paths << '"${PODS_CONFIGURATION_BUILD_DIR}/GoogleUserMessagingPlatform"'
+            search_paths << '"${PODS_ROOT}/../../"'
             config.build_settings['LIBRARY_SEARCH_PATHS'] = search_paths.uniq
             
             # Add framework search paths
@@ -200,6 +227,10 @@ workflows:
             framework_paths << '$(inherited)'
             framework_paths << '"${PODS_XCFRAMEWORKS_BUILD_DIR}/GoogleMobileAds"'
             framework_paths << '"${PODS_XCFRAMEWORKS_BUILD_DIR}/UserMessagingPlatform"'
+            framework_paths << '"${PODS_ROOT}/XCFrameworks/GoogleMobileAds"'
+            framework_paths << '"${PODS_ROOT}/XCFrameworks/UserMessagingPlatform"'
+            framework_paths << '"$(PROJECT_DIR)/Pods/XCFrameworks/GoogleMobileAds"'
+            framework_paths << '"$(PROJECT_DIR)/Pods/XCFrameworks/UserMessagingPlatform"'
             config.build_settings['FRAMEWORK_SEARCH_PATHS'] = framework_paths.uniq
             
             # Ensure LD_RUNPATH_SEARCH_PATHS includes frameworks
@@ -220,18 +251,26 @@ workflows:
             config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
             config.build_settings['ENABLE_BITCODE'] = 'NO'
             
-            # Add -ObjC linker flag if not present
+            # Critical: Add -ObjC and force link against Pods
             other_ldflags = config.build_settings['OTHER_LDFLAGS'] || []
             other_ldflags = [other_ldflags] if other_ldflags.is_a?(String)
             other_ldflags << '$(inherited)'
             other_ldflags << '-ObjC' unless other_ldflags.include?('-ObjC')
-            config.build_settings['OTHER_LDFLAGS'] = other_ldflags.uniq
+            other_ldflags << '-framework' << 'GoogleMobileAds'
+            other_ldflags << '-framework' << 'UserMessagingPlatform'
+            config.build_settings['OTHER_LDFLAGS'] = other_ldflags
           end
           
           project.save
           RUBY
           
           echo "✅ IL2CPP and library paths configured"
+          
+          # Debug: Print what we're looking for
+          echo "📁 Checking for Google Ads frameworks..."
+          find Pods -name "*.xcframework" -type d | grep -i google || echo "No Google xcframeworks found"
+          find Pods -name "*.framework" -type d | grep -i google || echo "No Google frameworks found"
+          ls -la Pods/XCFrameworks/ 2>/dev/null || echo "No XCFrameworks directory"
       
       - name: Create export options
         script: |
