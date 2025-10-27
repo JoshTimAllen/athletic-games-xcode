@@ -276,11 +276,12 @@ workflows:
             # Clean up framework search paths - we don't need these with static libraries
             config.build_settings.delete('FRAMEWORK_SEARCH_PATHS')
             
-            # Only keep library search paths pointing to actual build output
+            # ✅ FIXED: Correct library search paths (no quotes, include Libraries)
             search_paths = []
             search_paths << '$(inherited)'
-            search_paths << '"${PODS_CONFIGURATION_BUILD_DIR}/Google-Mobile-Ads-SDK"'
-            search_paths << '"${PODS_CONFIGURATION_BUILD_DIR}/GoogleUserMessagingPlatform"'
+            search_paths << '${PODS_CONFIGURATION_BUILD_DIR}/Google-Mobile-Ads-SDK'
+            search_paths << '${PODS_CONFIGURATION_BUILD_DIR}/GoogleUserMessagingPlatform'
+            search_paths << '$(PROJECT_DIR)/Libraries'
             config.build_settings['LIBRARY_SEARCH_PATHS'] = search_paths
             
             # Ensure LD_RUNPATH_SEARCH_PATHS
@@ -306,7 +307,8 @@ workflows:
           RUBY
           
           echo "✅ IL2CPP and library paths configured"
-      
+
+
       - name: Create export options
         script: |
           cat > $HOME/export_options.plist <<EOF
