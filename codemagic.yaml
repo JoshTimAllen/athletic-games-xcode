@@ -27,6 +27,15 @@ workflows:
         - ~/Library/Caches/CocoaPods
     
     scripts:
+
+      - name: Clean Xcode caches and provisioning data
+        script: |
+          echo "🧹 Cleaning DerivedData and provisioning cache..."
+          rm -rf ~/Library/Developer/Xcode/DerivedData/*
+          rm -rf ~/Library/MobileDevice/Provisioning\ Profiles/*
+          xcodebuild -list > /dev/null 2>&1 || true
+
+
       - name: Download libiPhone-lib.a from Google Drive
         script: |
           set -e
@@ -77,6 +86,12 @@ workflows:
           echo "CERTIFICATE_NAME=$CERTIFICATE_NAME" >> $CM_ENV
           echo "Found certificate: $CERTIFICATE_NAME"
       
+      - name: Reset Xcode target capabilities
+        script: |
+          echo "🧩 Removing duplicated entitlements to prevent provisioning crash..."
+          find . -name "*.entitlements" -exec plutil -remove aps-environment {} \; 2>/dev/null || true
+
+
       - name: Install CocoaPods dependencies
         script: |
           set -e
