@@ -9,7 +9,7 @@ workflows:
       vars:
         XCODE_PROJECT: "Unity-iPhone.xcodeproj"
         XCODE_SCHEME: "Unity-iPhone"
-      xcode: latest
+      xcode: 15.0
       cocoapods: default
     
     triggering:
@@ -230,12 +230,27 @@ workflows:
           pods_project.save
           RUBY
           
-          echo "🔧 Final cleanup: direct project.pbxproj text replacement..."
+          echo "🔧 Nuclear option: removing GameAssembly from EVERYWHERE..."
+          
+          # Clean project.pbxproj
           sed -i '' 's/-lGameAssembly//g' Unity-iPhone.xcodeproj/project.pbxproj
           sed -i '' 's|"-L/Google-Mobile-Ads-SDK"||g' Unity-iPhone.xcodeproj/project.pbxproj
           sed -i '' 's|"-L/GoogleUserMessagingPlatform"||g' Unity-iPhone.xcodeproj/project.pbxproj
-          sed -i '' 's|/Google-Mobile-Ads-SDK||g' Unity-iPhone.xcodeproj/project.pbxproj
-          sed -i '' 's|/GoogleUserMessagingPlatform||g' Unity-iPhone.xcodeproj/project.pbxproj
+          
+          # Clean xcscheme files
+          find Unity-iPhone.xcodeproj -name "*.xcscheme" -exec sed -i '' 's/-lGameAssembly//g' {} \;
+          find Unity-iPhone.xcworkspace -name "*.xcscheme" -exec sed -i '' 's/-lGameAssembly//g' {} \; 2>/dev/null || true
+          
+          # Clean ALL xcconfig files recursively
+          find . -name "*.xcconfig" -exec sed -i '' 's/-lGameAssembly//g' {} \;
+          
+          # Verify it's gone
+          echo "🔍 Verifying GameAssembly removal..."
+          if grep -r "lGameAssembly" Unity-iPhone.xcodeproj/project.pbxproj; then
+            echo "⚠️  Still found GameAssembly references, doing aggressive clean..."
+            # More aggressive - remove entire lines containing GameAssembly
+            sed -i '' '/lGameAssembly/d' Unity-iPhone.xcodeproj/project.pbxproj
+          fi
           
           echo "✅ Project configuration complete"
       
