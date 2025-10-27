@@ -255,6 +255,9 @@ workflows:
           
           pods_project.save
           RUBY
+
+          echo "🔍 Checking for leftover GameAssembly references..."
+          grep -R "GameAssembly" Unity-iPhone.xcodeproj/project.pbxproj || echo "No leftover GameAssembly found."
           
           echo "✅ Project configuration complete"
       
