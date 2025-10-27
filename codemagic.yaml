@@ -20,7 +20,38 @@ workflows:
           include: true
           source: true
     
+    cache:
+      cache_paths:
+        - $CM_BUILD_DIR
+        - ~/.cocoapods
+        - ~/Library/Caches/CocoaPods
+    
     scripts:
+      - name: Download libiPhone-lib.a from Google Drive
+        script: |
+          set -e
+          
+          FILE_ID="1KqTRS-jBMWM2VqRrUP7ZuDraaQCnhKgr"
+          OUTPUT_PATH="Libraries/libiPhone-lib.a"
+          
+          echo "📥 Downloading libiPhone-lib.a from Google Drive..."
+          
+          # Create Libraries directory if it doesn't exist
+          mkdir -p Libraries
+          
+          # Download using gdown (pre-installed on Codemagic)
+          pip3 install gdown --quiet || true
+          gdown "https://drive.google.com/uc?id=${FILE_ID}" -O "${OUTPUT_PATH}"
+          
+          # Verify download
+          if [ -f "${OUTPUT_PATH}" ]; then
+            echo "✅ Successfully downloaded libiPhone-lib.a"
+            ls -lh "${OUTPUT_PATH}"
+          else
+            echo "❌ Failed to download libiPhone-lib.a"
+            exit 1
+          fi
+      
       - name: Set up code signing
         script: |
           set -e
