@@ -222,7 +222,7 @@ workflows:
           echo "🔍 Checking that GameAssembly script is disabled..."
           grep -R "GameAssembly" Unity-iPhone.xcodeproj || echo "✅ GameAssembly script disabled successfully"
       
-            - name: Ensure libiPhone-lib.a search path
+      - name: Ensure libiPhone-lib.a search path
         script: |
           echo "📚 Ensuring Xcode project knows about libiPhone-lib.a..."
           gem install xcodeproj --no-document || true
@@ -245,6 +245,36 @@ workflows:
           end
           project.save
           RUBY
+
+
+      - name: Remove GameAssembly linker flag
+        script: |
+          echo "🧹 Removing -lGameAssembly from UnityFramework linker flags..."
+          gem install xcodeproj --no-document || true
+          ruby <<'RUBY'
+          require 'xcodeproj'
+          project_path = 'Unity-iPhone.xcodeproj'
+          project = Xcodeproj::Project.open(project_path)
+          unity_target = project.targets.find { |t| t.name == 'UnityFramework' }
+          if unity_target
+            unity_target.build_configurations.each do |config|
+              ldflags = config.build_settings['OTHER_LDFLAGS'] || []
+              ldflags = [ldflags] if ldflags.is_a?(String)
+              before = ldflags.dup
+              ldflags.reject! { |flag| flag.strip == '-lGameAssembly' || flag.strip == '$(inherited) -lGameAssembly' }
+              if before != ldflags
+                puts "✅ Removed -lGameAssembly from #{config.name}"
+              else
+                puts "ℹ️ No -lGameAssembly found in #{config.name}"
+              end
+              config.build_settings['OTHER_LDFLAGS'] = ldflags.uniq
+            end
+            project.save
+          else
+            puts "⚠️ UnityFramework target not found!"
+          end
+          RUBY
+
 
       - name: Fix IL2CPP and library paths
         script: |
