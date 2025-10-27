@@ -259,6 +259,9 @@ workflows:
           echo "🔍 Checking for leftover GameAssembly references..."
           grep -R "GameAssembly" Unity-iPhone.xcodeproj/project.pbxproj || echo "No leftover GameAssembly found."
           
+          echo "🔍 Searching for GameAssembly in project..."
+          grep -R "GameAssembly" Unity-iPhone.xcodeproj/project.pbxproj || echo "No GameAssembly found."
+
           echo "✅ Project configuration complete"
       
       - name: Create export options
