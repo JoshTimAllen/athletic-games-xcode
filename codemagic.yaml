@@ -54,20 +54,15 @@ workflows:
           set -e
           
           if [ -f "Podfile" ]; then
-            echo "Found Podfile, checking configuration..."
-            
-            # Backup original Podfile
+            echo "Found Podfile, recreating it..."
             cp Podfile Podfile.backup
             
-            # Create a proper Podfile for Unity
-            cat > Podfile <<'EOF'
-platform :ios, '13.0'
-
-target 'Unity-iPhone' do
-  pod 'Google-Mobile-Ads-SDK'
-  pod 'GoogleUserMessagingPlatform'
-end
-EOF
+            echo "platform :ios, '13.0'" > Podfile
+            echo "" >> Podfile
+            echo "target 'Unity-iPhone' do" >> Podfile
+            echo "  pod 'Google-Mobile-Ads-SDK'" >> Podfile
+            echo "  pod 'GoogleUserMessagingPlatform'" >> Podfile
+            echo "end" >> Podfile
             
             echo "Running pod install..."
             pod install
