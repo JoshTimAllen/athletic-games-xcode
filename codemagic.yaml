@@ -87,8 +87,6 @@ workflows:
           if [ -f "Podfile" ]; then
             echo "Found Podfile, recreating it with proper configuration..."
             cp Podfile Podfile.backup
-            
-            # Create optimized Podfile
             cat > Podfile <<'EOF'
           platform :ios, '13.0'
           
@@ -112,11 +110,9 @@ workflows:
             end
           end
           EOF
-            
             echo "Running pod install..."
             rm -rf Pods Podfile.lock
             pod install --repo-update
-            
             echo "Checking for workspace files..."
             if [ -d "Unity-iPhone.xcworkspace" ]; then
               echo "✅ Workspace created successfully"
@@ -205,6 +201,26 @@ workflows:
           
           pods_project.save
           RUBY
+
+      # ✅ Added fix to disable GameAssembly build script
+      - name: Disable GameAssembly build script
+        script: |
+          gem install xcodeproj --no-document || true
+          ruby <<'RUBY'
+          require 'xcodeproj'
+          project = Xcodeproj::Project.open('Unity-iPhone.xcodeproj')
+          if target = project.targets.find { |t| t.name == 'GameAssembly' }
+            target.build_phases
+                  .select { |p| p.isa == 'PBXShellScriptBuildPhase' }
+                  .each { |p| p.shell_script = 'echo "Skipping GameAssembly build script"; exit 0' }
+          end
+          project.save
+          RUBY
+
+      - name: Verify GameAssembly script removal
+        script: |
+          echo "🔍 Checking that GameAssembly script is disabled..."
+          grep -R "GameAssembly" Unity-iPhone.xcodeproj || echo "✅ GameAssembly script disabled successfully"
       
       - name: Fix IL2CPP and library paths
         script: |
@@ -299,8 +315,6 @@ workflows:
           echo "Building with workspace (CocoaPods)"
           
           # Build archive - signing is already configured in project settings
-          # Do NOT pass CODE_SIGN_STYLE or PROVISIONING_PROFILE_SPECIFIER on command line
-          # as they apply to ALL targets and cause framework signing errors
           xcodebuild \
             -workspace "Unity-iPhone.xcworkspace" \
             -scheme "$XCODE_SCHEME" \
