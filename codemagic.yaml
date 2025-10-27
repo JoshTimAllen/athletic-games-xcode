@@ -87,6 +87,7 @@ workflows:
           if [ -f "Podfile" ]; then
             echo "Found Podfile, recreating it with proper configuration..."
             cp Podfile Podfile.backup
+            
             cat > Podfile <<'EOF'
           platform :ios, '13.0'
           
@@ -110,9 +111,11 @@ workflows:
             end
           end
           EOF
+            
             echo "Running pod install..."
             rm -rf Pods Podfile.lock
             pod install --repo-update
+            
             echo "Checking for workspace files..."
             if [ -d "Unity-iPhone.xcworkspace" ]; then
               echo "✅ Workspace created successfully"
@@ -127,10 +130,10 @@ workflows:
             exit 1
           fi
       
-      - name: Update Xcode project with signing
+      - name: Update Xcode project with signing and disable GameAssembly
         script: |
           set -e
-          gem install xcodeproj || true
+          gem install xcodeproj --no-document || true
           
           ruby <<'RUBY'
           require 'xcodeproj'
@@ -165,12 +168,40 @@ workflows:
             other_cflags.delete_if { |flag| flag.to_s.include?('non-modular-include-in-framework-module') }
             other_cflags << '-Wno-error=non-modular-include-in-framework-module'
             other_cflags << '-Wno-non-modular-include-in-framework-module'
-            config.build_settings['OTHER_CFLAGS'] = other_cflags
+            other_cflags << '-Wno-atomic-memory-ordering'
+            config.build_settings['OTHER_CFLAGS'] = other_cflags.uniq
             
             config.build_settings['ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES'] = 'NO'
+            config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
+            config.build_settings['ENABLE_BITCODE'] = 'NO'
+            
+            # Remove GameAssembly from linker flags
+            other_ldflags = config.build_settings['OTHER_LDFLAGS'] || []
+            other_ldflags = [other_ldflags] if other_ldflags.is_a?(String)
+            other_ldflags = other_ldflags.flat_map { |f| f.to_s.split }.reject { |f| f == '-lGameAssembly' }
+            other_ldflags << '$(inherited)'
+            other_ldflags << '-ObjC' unless other_ldflags.include?('-ObjC')
+            config.build_settings['OTHER_LDFLAGS'] = other_ldflags.uniq
+            
+            # Add library search paths
+            search_paths = config.build_settings['LIBRARY_SEARCH_PATHS'] || []
+            search_paths = [search_paths] if search_paths.is_a?(String)
+            search_paths << '$(inherited)'
+            search_paths << '${PODS_CONFIGURATION_BUILD_DIR}/Google-Mobile-Ads-SDK'
+            search_paths << '${PODS_CONFIGURATION_BUILD_DIR}/GoogleUserMessagingPlatform'
+            search_paths << '$(PROJECT_DIR)/Libraries'
+            config.build_settings['LIBRARY_SEARCH_PATHS'] = search_paths.uniq
+            
+            # Ensure LD_RUNPATH_SEARCH_PATHS
+            runpath = config.build_settings['LD_RUNPATH_SEARCH_PATHS'] || []
+            runpath = [runpath] if runpath.is_a?(String)
+            runpath << '$(inherited)'
+            runpath << '@executable_path/Frameworks'
+            runpath << '@loader_path/Frameworks'
+            config.build_settings['LD_RUNPATH_SEARCH_PATHS'] = runpath.uniq
           end
           
-          # GameAssembly - automatic signing
+          # GameAssembly - disable the build script
           game_assembly = project.targets.find { |t| t.name == 'GameAssembly' }
           if game_assembly
             game_assembly.build_configurations.each do |config|
@@ -179,6 +210,13 @@ workflows:
               config.build_settings.delete('PROVISIONING_PROFILE_SPECIFIER')
               config.build_settings.delete('PROVISIONING_PROFILE')
             end
+            
+            # Replace the script content to skip execution
+            game_assembly.shell_script_build_phases.each do |phase|
+              phase.shell_script = 'echo "Skipping GameAssembly IL2CPP compilation - using pre-built library"; exit 0'
+            end
+            
+            puts "✅ Disabled GameAssembly build script"
           end
           
           project.save
@@ -201,181 +239,9 @@ workflows:
           
           pods_project.save
           RUBY
-
-      # ✅ Added fix to disable GameAssembly build script
-      - name: Disable GameAssembly build script
-        script: |
-          gem install xcodeproj --no-document || true
-          ruby <<'RUBY'
-          require 'xcodeproj'
-          project = Xcodeproj::Project.open('Unity-iPhone.xcodeproj')
-          if target = project.targets.find { |t| t.name == 'GameAssembly' }
-            target.build_phases
-                  .select { |p| p.isa == 'PBXShellScriptBuildPhase' }
-                  .each { |p| p.shell_script = 'echo "Skipping GameAssembly build script"; exit 0' }
-          end
-          project.save
-          RUBY
-
-      - name: Verify GameAssembly script removal
-        script: |
-          echo "🔍 Checking that GameAssembly script is disabled..."
-          grep -R "GameAssembly" Unity-iPhone.xcodeproj || echo "✅ GameAssembly script disabled successfully"
+          
+          echo "✅ Project configuration complete"
       
-      - name: Ensure libiPhone-lib.a search path
-        script: |
-          echo "📚 Ensuring Xcode project knows about libiPhone-lib.a..."
-          gem install xcodeproj --no-document || true
-          ruby <<'RUBY'
-          require 'xcodeproj'
-          project = Xcodeproj::Project.open('Unity-iPhone.xcodeproj')
-          target = project.targets.find { |t| t.name == 'UnityFramework' }
-          if target
-            target.build_configurations.each do |config|
-              paths = config.build_settings['LIBRARY_SEARCH_PATHS'] || []
-              paths = [paths] if paths.is_a?(String)
-              unless paths.include?('$(PROJECT_DIR)/Libraries')
-                paths << '$(PROJECT_DIR)/Libraries'
-              end
-              config.build_settings['LIBRARY_SEARCH_PATHS'] = paths.uniq
-            end
-            puts "✅ Added $(PROJECT_DIR)/Libraries to LIBRARY_SEARCH_PATHS"
-          else
-            puts "⚠️ UnityFramework target not found!"
-          end
-          project.save
-          RUBY
-
-
-           - name: Remove GameAssembly linker flag
-        script: |
-          echo "🧹 Removing GameAssembly references (flags & build files)..."
-          gem install xcodeproj --no-document || true
-          ruby <<'RUBY'
-          require 'xcodeproj'
-          require 'shellwords'
-
-          def scrub_ldflags!(settings)
-            return unless settings
-            # Keys we want to scrub
-            keys = ['OTHER_LDFLAGS', 'OTHER_LIBTOOLFLAGS',
-                    'OTHER_LDFLAGS[sdk=iphoneos*]', 'OTHER_LIBTOOLFLAGS[sdk=iphoneos*]']
-            keys.each do |k|
-              next unless settings.key?(k)
-              v = settings[k]
-              tokens =
-                if v.is_a?(Array)
-                  v.flat_map { |e| e.to_s.shellsplit rescue e.to_s.split(/\s+/) }
-                else
-                  v.to_s.shellsplit rescue v.to_s.split(/\s+/)
-                end
-              before = tokens.dup
-              tokens.reject! { |t| t == '-lGameAssembly' }
-              settings[k] =
-                if v.is_a?(Array)
-                  tokens
-                else
-                  tokens.join(' ')
-                end
-              puts "✅ Scrubbed #{k}" if before != tokens
-            end
-          end
-
-          project = Xcodeproj::Project.open('Unity-iPhone.xcodeproj')
-
-          # 1) Project-level configs
-          project.build_configurations.each { |cfg| scrub_ldflags!(cfg.build_settings) }
-
-          # 2) All targets
-          project.targets.each do |t|
-            t.build_configurations.each { |cfg| scrub_ldflags!(cfg.build_settings) }
-          end
-
-          # 3) Remove libGameAssembly.a from "Link Binary With Libraries" if present
-          project.targets.each do |t|
-            t.frameworks_build_phase.files.to_a.each do |f|
-              file_ref = f.file_ref
-              next unless file_ref && file_ref.display_name == 'libGameAssembly.a'
-              t.frameworks_build_phase.remove_file_reference(file_ref)
-              puts "🗑️  Removed libGameAssembly.a from #{t.name}"
-            end
-          end
-
-          project.save
-          RUBY
-
-          # Verify: show any leftover references
-          echo "🔎 Verifying no 'GameAssembly' remains in project file..."
-          if grep -R "GameAssembly" Unity-iPhone.xcodeproj/project.pbxproj; then
-            echo "⚠️ Still found 'GameAssembly' above. We'll fail to make it obvious."
-            exit 1
-          else
-            echo "✅ Verified: no 'GameAssembly' references remain."
-          fi
-
-      - name: Fix IL2CPP and library paths
-        script: |
-          set -e
-          
-          ruby <<'RUBY'
-          require 'xcodeproj'
-          project = Xcodeproj::Project.open('Unity-iPhone.xcodeproj')
-          
-          # Fix UnityFramework target
-          unity_framework = project.targets.find { |t| t.name == 'UnityFramework' }
-          
-          unity_framework.build_configurations.each do |config|
-            # Remove the -framework flags we added (they're not needed with static linkage)
-            other_ldflags = config.build_settings['OTHER_LDFLAGS'] || []
-            other_ldflags = [other_ldflags] if other_ldflags.is_a?(String)
-            
-            # Clean up and rebuild OTHER_LDFLAGS properly
-            other_ldflags = other_ldflags.reject do |flag|
-              flag.to_s.include?('GoogleMobileAds') || 
-              flag.to_s.include?('UserMessagingPlatform') ||
-              flag == '-framework'
-            end
-            
-            other_ldflags << '$(inherited)'
-            other_ldflags << '-ObjC' unless other_ldflags.include?('-ObjC')
-            config.build_settings['OTHER_LDFLAGS'] = other_ldflags.uniq
-            
-            # Clean up framework search paths - we don't need these with static libraries
-            config.build_settings.delete('FRAMEWORK_SEARCH_PATHS')
-            
-            # ✅ FIXED: Correct library search paths (no quotes, include Libraries)
-            search_paths = []
-            search_paths << '$(inherited)'
-            search_paths << '${PODS_CONFIGURATION_BUILD_DIR}/Google-Mobile-Ads-SDK'
-            search_paths << '${PODS_CONFIGURATION_BUILD_DIR}/GoogleUserMessagingPlatform'
-            search_paths << '$(PROJECT_DIR)/Libraries'
-            config.build_settings['LIBRARY_SEARCH_PATHS'] = search_paths
-            
-            # Ensure LD_RUNPATH_SEARCH_PATHS
-            runpath = config.build_settings['LD_RUNPATH_SEARCH_PATHS'] || []
-            runpath = [runpath] if runpath.is_a?(String)
-            runpath << '$(inherited)'
-            runpath << '@executable_path/Frameworks'
-            runpath << '@loader_path/Frameworks'
-            config.build_settings['LD_RUNPATH_SEARCH_PATHS'] = runpath.uniq
-            
-            # Fix IL2CPP warnings/errors
-            other_cflags = config.build_settings['OTHER_CFLAGS'] || []
-            other_cflags = [other_cflags] if other_cflags.is_a?(String)
-            other_cflags << '-Wno-atomic-memory-ordering'
-            config.build_settings['OTHER_CFLAGS'] = other_cflags.uniq
-            
-            # Ensure proper linking
-            config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
-            config.build_settings['ENABLE_BITCODE'] = 'NO'
-          end
-          
-          project.save
-          RUBY
-          
-          echo "✅ IL2CPP and library paths configured"
-
-
       - name: Create export options
         script: |
           cat > $HOME/export_options.plist <<EOF
@@ -416,7 +282,21 @@ workflows:
             archive \
             COMPILER_INDEX_STORE_ENABLE=NO \
             ENABLE_BITCODE=NO \
-            | tee "$HOME/xcodebuild_archive.log"
+            2>&1 | tee "$HOME/xcodebuild_archive.log"
+          
+          # Check if archive was created
+          if [ ! -d "$HOME/build/Unity-iPhone.xcarchive" ]; then
+            echo "❌ Archive failed! Checking logs..."
+            echo ""
+            echo "=== Last 100 lines of build log ==="
+            tail -100 "$HOME/xcodebuild_archive.log"
+            echo ""
+            echo "=== Searching for errors ==="
+            grep -i "error:" "$HOME/xcodebuild_archive.log" | tail -20 || echo "No specific errors found"
+            exit 1
+          fi
+          
+          echo "✅ Archive created successfully"
           
           # Export IPA
           xcodebuild \
@@ -424,7 +304,7 @@ workflows:
             -archivePath "$HOME/build/Unity-iPhone.xcarchive" \
             -exportPath "$HOME/build" \
             -exportOptionsPlist "$HOME/export_options.plist" \
-            | tee "$HOME/xcodebuild_export.log"
+            2>&1 | tee "$HOME/xcodebuild_export.log"
           
           # Copy IPA to expected location
           mkdir -p build/ios/ipa
