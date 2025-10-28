@@ -54,6 +54,11 @@ workflows:
             exit 1
           fi
 
+      - name: Check libiPhone-lib.a architecture
+        script: |
+          echo "🔍 Checking libiPhone-lib.a architecture..."
+          lipo -info Libraries/libiPhone-lib.a || echo "⚠️ Could not read library info!"
+
       - name: Set up code signing
         script: |
           echo "🔐 Setting up signing..."
