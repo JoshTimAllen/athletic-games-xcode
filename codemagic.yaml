@@ -10,6 +10,7 @@ workflows:
       vars:
         XCODE_PROJECT: "Unity-iPhone.xcodeproj"
         XCODE_SCHEME: "Unity-iPhone"
+        APPLE_TEAM_ID: "JQ8ZF3V63Z"
       xcode: 15.0
       cocoapods: default
 
@@ -27,31 +28,48 @@ workflows:
         - ~/Library/Caches/CocoaPods
 
     scripts:
-      - name: Clean caches
+      - name: Clean Xcode caches
         script: |
           echo "🧹 Cleaning DerivedData and provisioning cache..."
           rm -rf ~/Library/Developer/Xcode/DerivedData/*
           rm -rf ~/Library/MobileDevice/Provisioning\ Profiles/*
           xcodebuild -list > /dev/null 2>&1 || true
 
+      - name: Download libiPhone-lib.a from Google Drive
+        script: |
+          set -e
+          FILE_ID="1KqTRS-jBMWM2VqRrUP7ZuDraaQCnhKgr"
+          OUTPUT_PATH="Libraries/libiPhone-lib.a"
+
+          echo "📥 Downloading libiPhone-lib.a from Google Drive..."
+          mkdir -p Libraries
+          pip3 install gdown --quiet || true
+          gdown "https://drive.google.com/uc?id=${FILE_ID}" -O "${OUTPUT_PATH}"
+
+          if [ -f "${OUTPUT_PATH}" ]; then
+            echo "✅ Successfully downloaded libiPhone-lib.a"
+            ls -lh "${OUTPUT_PATH}"
+          else
+            echo "❌ Failed to download libiPhone-lib.a"
+            exit 1
+          fi
+
       - name: Set up code signing
         script: |
           echo "🔐 Setting up signing..."
           set -e
-
-          # Decode and install the provisioning profile
           echo "$PROVISION_PROFILE_BASE64" | base64 --decode > /tmp/profile.mobileprovision
           PROFILE_UUID=$(grep UUID -A1 -a /tmp/profile.mobileprovision | grep -io "[-A-F0-9]\{36\}")
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           cp /tmp/profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/$PROFILE_UUID.mobileprovision
 
-          # Decode and import certificate
           echo "$P12_BASE64" | base64 --decode > /tmp/certificate.p12
           security create-keychain -p "" build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p "" build.keychain
           security import /tmp/certificate.p12 -k build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+
           echo "✅ Signing setup complete"
 
       - name: Install CocoaPods dependencies
@@ -126,7 +144,7 @@ workflows:
     publishing:
       email:
         recipients:
-          - youremail@example.com
+          - joshtimallendev@gmail.com
         notify:
           success: true
           failure: true
