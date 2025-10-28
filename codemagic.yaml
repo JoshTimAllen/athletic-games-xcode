@@ -273,6 +273,21 @@ workflows:
           </plist>
           EOF
       
+      - name: Clean derived data and force rebuild
+        script: |
+          set -e
+          
+          echo "🧹 Cleaning all derived data and caches..."
+          rm -rf ~/Library/Developer/Xcode/DerivedData/*
+          
+          echo "🔧 Cleaning workspace..."
+          xcodebuild clean \
+            -workspace "Unity-iPhone.xcworkspace" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Release
+          
+          echo "✅ Clean complete"
+      
       - name: Build IPA
         script: |
           set -e
